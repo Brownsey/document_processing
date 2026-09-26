@@ -88,7 +88,7 @@ def main() -> None:
     args = parser.parse_args()
 
     load_dotenv()
-    generator = ReportGenerator(OpenAI(), os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+    generator = ReportGenerator(OpenAI(), os.environ.get("OPENAI_MODEL", "gpt-6-luna"))
 
     config = json.loads(args.config.read_text(encoding="utf-8"))
     client_dir = args.data_dir / args.client
