@@ -1,0 +1,65 @@
+{
+  "tax": false,
+  "initial_rate": "0",
+  "accounts": [
+    {
+      "id": "NX-WRAP-8",
+      "aliases": [
+        "NX-WRAP-8"
+      ],
+      "owners": [
+        "Priya Ellis"
+      ],
+      "value": "47350",
+      "date": "2027-02-08",
+      "precision": "exact"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "transfer",
+      "source": [
+        "NX-LIQ-5",
+        "cash account"
+      ],
+      "destination": [
+        "NX-WRAP-8"
+      ],
+      "amount": "12400"
+    }
+  ],
+  "allowed_amounts": [
+    "47350",
+    "18900",
+    "12400"
+  ],
+  "excluded_accounts": [
+    "NX-LIQ-5"
+  ],
+  "required_concepts": [
+    [
+      "moderate"
+    ]
+  ],
+  "review_concepts": [
+    [
+      "platform"
+    ],
+    [
+      "ongoing",
+      "advice"
+    ]
+  ],
+  "client": "reserved_cash_direction",
+  "family": "renamed_cash_direction",
+  "partition": "reserved",
+  "source_review": {
+    "method": "Fresh synthetic specification independently authored before tuning; nested renamed text and custody JSON, no model outputs.",
+    "observations": [
+      "Amounts, dates, names, account IDs and distractor differ from supplied cases. Entire related family remains reserved."
+    ]
+  },
+  "forbidden_labels": [
+    "Eastgate Example Basket"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "development": [
+    "client_01_clean",
+    "client_02_medium",
+    "client_03_hard",
+    "client_04_stretch"
+  ],
+  "policy": "Reserve entire scenario families before tuning. Never send reserved expectations to optimiser feedback. If used for tuning, explicitly reclassify the whole family as regression and create a new reserved family. Generation reads only sources directories, never expected answers.",
+  "reserved_families": [
+    {
+      "family": "renamed_cash_direction",
+      "sources": "eval/scenarios/reserved_cash_direction",
+      "expectations": "eval/reserved/reserved_cash_direction.json",
+      "status": "reserved_not_used_for_tuning"
+    },
+    {
+      "family": "separate_receipt_commitment_extent",
+      "sources": "eval/scenarios/reserved_commitments_partial",
+      "expectations": "eval/reserved/reserved_commitments_partial.json",
+      "status": "reserved_not_used_for_tuning"
+    }
+  ]
+}

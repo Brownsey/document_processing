@@ -1,0 +1,30 @@
+{
+  "snapshot_date": "2027-02-08",
+  "holders": {
+    "0": {
+      "name": "Priya Ellis",
+      "accounts": [
+        {
+          "account_id": "NX-WRAP-8",
+          "owner": "Priya Ellis",
+          "type": "Stocks & Shares ISA",
+          "value": 47350,
+          "valuation_date": "2027-02-08",
+          "platform": "Northbank",
+          "currency": "GBP",
+          "status": "open"
+        },
+        {
+          "account_id": "NX-LIQ-5",
+          "owner": "Priya Ellis",
+          "type": "Cash Account",
+          "value": 18900,
+          "valuation_date": "2027-02-08",
+          "platform": "Northbank",
+          "currency": "GBP",
+          "status": "open"
+        }
+      ]
+    }
+  }
+}

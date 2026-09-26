@@ -1,0 +1,127 @@
+{
+  "client": "client_02_medium",
+  "family": "supplied-development",
+  "partition": "development",
+  "source_review": {
+    "method": "Independent direct reading of all supplied DOCX paragraphs/tables, database, notes/specification and PNG statements. Authored before report generation.",
+    "observations": [
+      "Joint account duplicated per holder in database; count once.",
+      "14 May live a little over 45,000 supersedes 15 March 40,000 shown in database/PNG.",
+      "Full disposal, equal ISA split. Both already part-funded: exact residual allowances absent, cannot assume 20,000 each or 22,500 each."
+    ]
+  },
+  "accounts": [
+    {
+      "id": "H-ISA-D",
+      "aliases": [
+        "H-ISA-D",
+        "Holloway ISA (David)"
+      ],
+      "owners": [
+        "David Clarke"
+      ],
+      "value": "61000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "H-ISA-S",
+      "aliases": [
+        "H-ISA-S",
+        "Holloway ISA (Susan)"
+      ],
+      "owners": [
+        "Susan Clarke"
+      ],
+      "value": "58500",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "H-GIA-J",
+      "aliases": [
+        "H-GIA-J",
+        "joint GIA",
+        "Holloway GIA (Joint)"
+      ],
+      "owners": [
+        "David Clarke",
+        "Susan Clarke"
+      ],
+      "value": "45000",
+      "date": "2026-05-14",
+      "precision": "lower_bound"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "sell",
+      "source": [
+        "H-GIA-J",
+        "joint GIA",
+        "joint General Investment Account"
+      ],
+      "extent": "full"
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "ISAs",
+        "both ISA",
+        "H-ISA-D",
+        "David"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "ISAs",
+        "both ISA",
+        "H-ISA-S",
+        "Susan"
+      ]
+    }
+  ],
+  "initial_rate": "0",
+  "tax": true,
+  "allowed_amounts": [
+    "61000",
+    "58500",
+    "45000",
+    "40000"
+  ],
+  "excluded_accounts": [],
+  "forbidden_labels": [
+    "Kestrel Balanced Portfolio"
+  ],
+  "required_concepts": [
+    [
+      "equally",
+      "equal"
+    ],
+    [
+      "allowance",
+      "allowances"
+    ],
+    [
+      "balanced"
+    ]
+  ],
+  "review_concepts": [
+    [
+      "platform"
+    ],
+    [
+      "ongoing",
+      "advice"
+    ],
+    [
+      "allowance",
+      "remaining"
+    ],
+    [
+      "capital",
+      "gains"
+    ]
+  ]
+}

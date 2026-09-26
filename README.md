@@ -1,7 +1,7 @@
 # doc-gen-assignment
 
 A small config-driven pipeline that turns a client's source material into an advice report. Start
-with `PROJECT_GUIDANCE.md`; it describes the exercise.
+with [project guidance](PROJECT_GUIDANCE.md); it describes the exercise.
 
 ## Setup
 
@@ -15,7 +15,7 @@ uv sync                       # or: pip install -e .
 
 ```bash
 uv run python -m agent_pipeline.generate --client client_01_clean
-# report is written to outputs/client_01_clean.md - This will run for client_01, we would recommend reviewing data/code before running on other clients.
+# report is written to outputs/client_01_clean.md
 ```
 
 Available clients live under `data/`:
@@ -25,25 +25,60 @@ Available clients live under `data/`:
 - `client_03_hard`
 - `client_04_stretch` (large and messy on purpose; a deliberate stretch)
 
-## How it fits together
+Successful runs write a Markdown draft and JSON sidecar under `outputs/`. Drafts always need
+adviser review. Failed or blocked runs return a non-zero exit and diagnostics, removing stale
+success files. `--data-dir`, `--config` and `--output-dir` remain supported.
 
+## First-round workflow
+
+Client files become source-labelled evidence. A model extracts typed facts; pure functions
+reconcile accounts, dates and money. A bounded investigator can read/search that client's
+evidence. Configured selectors supply relevant facts to each slot. Code renders holdings,
+actions and fixed warnings; Luna writes the narrative. Validation runs before the unchanged
+formatter's assembled report is released.
+
+Provider calls sit behind a small port. OpenAI is the default; OpenRouter is wired but has not
+been tested live. Switching requires explicit selection and your own provider/model settings:
+
+```bash
+# Set OPENROUTER_API_KEY in .env first; substitute a valid OpenRouter model ID.
+uv run --locked python -m agent_pipeline.generate --client client_01_clean --provider openrouter --model "PROVIDER/MODEL" --base-url https://openrouter.ai/api/v1
 ```
-config/template_config.json          the report definition: sections, prompts, inclusion rules
-        │
-        ▼
-src/agent_pipeline/generate.py       reads the client's files, then for each section decides
-        │                            inclusion and fills its prompts from the client's data
-        ▼
-src/document_formatter/formatting.py assembles the sections into the final .md document
-        │
-        ▼
-outputs/<client>.md
+
+No spend cap. Calls, retries and execution time are bounded; usage and estimated or unknown
+costs are recorded. Optional `--cache-dir .cache` reuses accepted extraction/image results;
+prompt comparisons use fresh calls. Flex is outside V1.
+
+## Prompts and evaluation
+
+`template_config.json` is the initial structured baseline. `template_config.candidate.json`
+contains the Astra rewrite, **PENDING USER REVIEW**; [the prompt review](docs/prompt-review.md)
+explains the changes. `template_config.original.json` preserves the scaffold configuration.
+
+```bash
+# Compare both prompt versions on all four clients, using Luna for both.
+uv run --locked --extra experiment python -m agent_pipeline.evaluation --mode compare --baseline-config config/template_config.json --config config/template_config.candidate.json --mlflow
+
+# Generate a candidate draft explicitly.
+uv run --locked python -m agent_pipeline.generate --client client_01_clean --config config/template_config.candidate.json
 ```
 
-## The pipeline is deliberately minimal
+Comparisons and local MLflow stores stay under ignored `.local/`. Source-reviewed expectations
+live in `eval/development/`; separate synthetic families are reserved for later checks. They
+are never passed to generation. Registering prompts does not approve them or start tuning:
 
-What you are given is the smallest setup that runs end to end. It works, but it is naive: one model
-call per section, every file in the client folder dumped into every prompt whether or not it is
-relevant, a single model, and no tools. Improving it is part of the task; weigh speed, cost, and
-effectiveness (see `PROJECT_GUIDANCE.md`). Most of your work will be in
-`config/template_config.json`; the pipeline code is yours to improve too.
+```bash
+uv run --locked --extra experiment python -m agent_pipeline.experiments --mode register --config config/template_config.candidate.json
+```
+
+Automatic improvement requires your review of the actual drafts, results and exact registered
+prompt versions. See [first-round status and follow-up commands](docs/first-round.md).
+
+## Verification
+
+```bash
+uv run --locked --extra dev --extra experiment python scripts/verify.py
+```
+
+This runs lint, formatting, types and offline tests, including local MLflow integration. It
+does not make live API calls. Normal generation does not require MLflow.

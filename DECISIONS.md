@@ -45,3 +45,13 @@ Each slot gets relevant facts + surrounding wording. Code renders actions, holdi
 Small client inputs -> explicit selection, no vector store. Narrow provider ports for switching later. Shared CLI/MLflow generation, validation and spend tracking.
 
 Actions can depend on confirmed allowances/amounts. Unknown figures stay flagged; ambiguous identities/instructions block affected recommendations.
+
+First implementation:
+
+Keep source support checks separate from the maths. A quoted number being present doesnt prove it belongs to that action -> deterministic checks catch arithmetic/scope issues, model validation still has to check meaning. Neither replaces reviewing the actual reports.
+
+Cache only after accepting the extraction/image result. Valid JSON on its own isnt enough. Failed/refused/incomplete results should get another attempt, not become cached facts.
+
+MLflow stays optional for generation. The optimiser's own reflection calls arent metered by our provider adapter yet -> cost stays unknown rather than pretending its free. Need to sort that before claiming a cost saving.
+
+New Responses API path got an authentication error using the local key, also checked directly from .env. Havent retested the old Chat Completions path so need to check why before blaming the key. The four reports and prompt comparison still need running. Astra prompt rewrite is saved separately for review, no autoimprove yet. Offline tests arent evidence that the live reports are good.

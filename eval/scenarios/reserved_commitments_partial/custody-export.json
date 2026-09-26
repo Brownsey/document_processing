@@ -1,0 +1,55 @@
+{
+  "snapshot_date": "2027-02-08",
+  "holders": {
+    "0": {
+      "name": "Owen Webb",
+      "accounts": [
+        {
+          "account_id": "QZ-GROW-4",
+          "owner": "Joint",
+          "type": "General Investment Account",
+          "value": 146700,
+          "valuation_date": "2027-02-08",
+          "platform": "Northbank",
+          "currency": "GBP",
+          "status": "open"
+        },
+        {
+          "account_id": "QZ-BOND-9",
+          "owner": "Joint",
+          "type": "Offshore Investment Bond",
+          "value": 112800,
+          "valuation_date": "2027-02-08",
+          "platform": "Northbank",
+          "currency": "GBP",
+          "status": "open"
+        }
+      ]
+    },
+    "1": {
+      "name": "Maya Webb",
+      "accounts": [
+        {
+          "account_id": "QZ-GROW-4",
+          "owner": "Joint",
+          "type": "General Investment Account",
+          "value": 146700,
+          "valuation_date": "2027-02-08",
+          "platform": "Northbank",
+          "currency": "GBP",
+          "status": "open"
+        },
+        {
+          "account_id": "QZ-BOND-9",
+          "owner": "Joint",
+          "type": "Offshore Investment Bond",
+          "value": 112800,
+          "valuation_date": "2027-02-08",
+          "platform": "Northbank",
+          "currency": "GBP",
+          "status": "open"
+        }
+      ]
+    }
+  }
+}

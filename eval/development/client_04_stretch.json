@@ -1,0 +1,285 @@
+{
+  "client": "client_04_stretch",
+  "family": "supplied-development",
+  "partition": "development",
+  "source_review": {
+    "method": "Independent direct reading of all supplied DOCX paragraphs/tables, database, notes/specification and PNG statements. Authored before report generation.",
+    "observations": [
+      "20 May around 255,000 supersedes February 240,000 joint Holloway value, each joint account counted once.",
+      "850,000 received, reserve 200,000 bridge repayment once, leaves 650,000. Earnout up to 400,000 unreceived/contingent: exclude.",
+      "Separate partial Holloway sale/rebalance and Holloway contribution. No Brightwell GIA/SIPP/ISA/bond sale. Retain bond.",
+      "Both ISA and SIPP contributions require allowances/sizing; new joint gets remaining balance. No invented allocations or exact fee basis.",
+      "Three-year income replacement objective; unknown Caroline cash reviewed; closed account excluded. School fees/charity/France deferred."
+    ]
+  },
+  "accounts": [
+    {
+      "id": "H4-ISA-J",
+      "aliases": [
+        "H4-ISA-J",
+        "Holloway ISA (James)"
+      ],
+      "owners": [
+        "James Whitmore"
+      ],
+      "value": "85000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "H4-ISA-C",
+      "aliases": [
+        "H4-ISA-C",
+        "Holloway ISA (Caroline)"
+      ],
+      "owners": [
+        "Caroline Whitmore"
+      ],
+      "value": "82000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "H4-GIA-HJ",
+      "aliases": [
+        "H4-GIA-HJ",
+        "Holloway joint GIA",
+        "joint Holloway GIA"
+      ],
+      "owners": [
+        "James Whitmore",
+        "Caroline Whitmore"
+      ],
+      "value": "255000",
+      "date": "2026-05-20",
+      "precision": "approximate"
+    },
+    {
+      "id": "B4-SIPP-J",
+      "aliases": [
+        "B4-SIPP-J",
+        "Brightwell SIPP (James)"
+      ],
+      "owners": [
+        "James Whitmore"
+      ],
+      "value": "610000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "B4-SIPP-C",
+      "aliases": [
+        "B4-SIPP-C",
+        "Brightwell SIPP (Caroline)"
+      ],
+      "owners": [
+        "Caroline Whitmore"
+      ],
+      "value": "430000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "B4-GIA-J",
+      "aliases": [
+        "B4-GIA-J",
+        "Brightwell joint GIA",
+        "joint Brightwell GIA"
+      ],
+      "owners": [
+        "James Whitmore",
+        "Caroline Whitmore"
+      ],
+      "value": "95000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "M4-BOND-J",
+      "aliases": [
+        "M4-BOND-J",
+        "Meridian offshore bond",
+        "offshore investment bond"
+      ],
+      "owners": [
+        "James Whitmore",
+        "Caroline Whitmore"
+      ],
+      "value": "180000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "sell",
+      "source": [
+        "H4-GIA-HJ",
+        "Holloway joint GIA",
+        "joint Holloway GIA"
+      ],
+      "extent": "partial"
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "ISAs",
+        "both ISA"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "SIPPs",
+        "both SIPP"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "H4-GIA-HJ",
+        "Holloway joint GIA",
+        "joint Holloway GIA"
+      ]
+    },
+    {
+      "kind": "open",
+      "destination": [
+        "joint account",
+        "joint investment account"
+      ]
+    },
+    {
+      "kind": "retain",
+      "source": [
+        "M4-BOND-J",
+        "offshore bond",
+        "offshore investment bond"
+      ]
+    }
+  ],
+  "initial_rate": "0.5",
+  "tax": true,
+  "allowed_amounts": [
+    "85000",
+    "82000",
+    "255000",
+    "240000",
+    "610000",
+    "430000",
+    "95000",
+    "180000",
+    "30000",
+    "850000",
+    "200000",
+    "650000",
+    "400000"
+  ],
+  "excluded_accounts": [
+    "M4-CASH-J",
+    "M4-CASH-C",
+    "M4-OLD-C"
+  ],
+  "forbidden_labels": [
+    "Pendle Global Fund",
+    "Sutton Strategic Fund"
+  ],
+  "required_concepts": [
+    [
+      "650,000",
+      "650k"
+    ],
+    [
+      "earnout",
+      "earn-out"
+    ],
+    [
+      "contingent",
+      "not guaranteed"
+    ],
+    [
+      "exclude",
+      "excluded",
+      "not available",
+      "not included"
+    ],
+    [
+      "three years",
+      "three-year",
+      "3 years"
+    ],
+    [
+      "bridging loan"
+    ],
+    [
+      "partial",
+      "portion",
+      "part"
+    ],
+    [
+      "balanced",
+      "moderate"
+    ]
+  ],
+  "review_concepts": [
+    [
+      "Holloway",
+      "charge"
+    ],
+    [
+      "Brightwell",
+      "charge"
+    ],
+    [
+      "Meridian",
+      "charge"
+    ],
+    [
+      "ongoing",
+      "advice"
+    ],
+    [
+      "cash",
+      "balance"
+    ],
+    [
+      "allowance",
+      "pension"
+    ],
+    [
+      "capital",
+      "gains"
+    ],
+    [
+      "loan",
+      "timing"
+    ]
+  ],
+  "funding": [
+    {
+      "labels": [
+        "earnout",
+        "earn-out"
+      ],
+      "amount": "400000",
+      "status": "excluded"
+    },
+    {
+      "labels": [
+        "loan",
+        "bridging loan"
+      ],
+      "amount": "200000",
+      "status": "reserved"
+    },
+    {
+      "labels": [
+        "completion",
+        "available funding"
+      ],
+      "amount": "650000",
+      "status": "available"
+    }
+  ]
+}

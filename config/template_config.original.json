@@ -1,0 +1,75 @@
+{
+  "document_title": "Investment Advice Report",
+  "global_instructions": "You are writing sections of a financial advice report addressed to the client. Write in clear British English, in the first person ('we'). Output only the text for the section itself, with no extra headings or commentary.",
+  "sections": [
+    {
+      "id": "introduction",
+      "title": "Introduction",
+      "use_if": "always",
+      "template": "Further to our recent discussions, we are writing to set out our advice in relation to <<scope>>. This advice is based on the information currently available to us.\n\nThis firm is authorised and regulated by the Financial Conduct Authority.",
+      "placeholders": {
+        "scope": {
+          "prompt": "Say which of the client's accounts this report relates to."
+        }
+      }
+    },
+    {
+      "id": "background_objectives",
+      "title": "Background & Objectives",
+      "use_if": "always",
+      "template": "<<summary>>\n\nThe accounts covered by this report are as follows:\n\n<<holdings_table>>",
+      "placeholders": {
+        "summary": {
+          "prompt": "Summarise the client's objectives and circumstances."
+        },
+        "holdings_table": {
+          "prompt": "List the client's accounts and their values as a markdown table."
+        }
+      }
+    },
+    {
+      "id": "recommendations",
+      "title": "Recommendations",
+      "use_if": "always",
+      "template": "We recommend the following:\n\n<<recommendation>>",
+      "placeholders": {
+        "recommendation": {
+          "prompt": "Describe what the client should do with their investments, and why."
+        }
+      }
+    },
+    {
+      "id": "tax_implications",
+      "title": "Tax Implications",
+      "use_if": "Include this section when the recommendation involves selling investments that could be taxable.",
+      "template": "<<cgt_statement>>",
+      "placeholders": {
+        "cgt_statement": {
+          "prompt": "Estimate the capital gains tax arising from the recommended sales. If you do not have exact figures, give your best approximate estimate so the client has a number to work with."
+        }
+      }
+    },
+    {
+      "id": "fees_charges",
+      "title": "Fees & Charges",
+      "use_if": "always",
+      "template": "<<fees>>",
+      "placeholders": {
+        "fees": {
+          "prompt": "Set out the ongoing fees and charges that apply to the client's investments."
+        }
+      }
+    },
+    {
+      "id": "conclusion",
+      "title": "Conclusion",
+      "use_if": "always",
+      "template": "<<risk_warning>>\n\nIf you are happy to proceed with our recommendations, please let us know and we will implement them for you.",
+      "placeholders": {
+        "risk_warning": {
+          "prompt": "Add the standard risk warning about investments."
+        }
+      }
+    }
+  ]
+}

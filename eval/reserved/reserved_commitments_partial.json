@@ -1,0 +1,137 @@
+{
+  "tax": true,
+  "initial_rate": "0.4",
+  "accounts": [
+    {
+      "id": "QZ-GROW-4",
+      "aliases": [
+        "QZ-GROW-4"
+      ],
+      "owners": [
+        "Owen Webb",
+        "Maya Webb"
+      ],
+      "value": "146700",
+      "date": "2027-02-08",
+      "precision": "exact"
+    },
+    {
+      "id": "QZ-BOND-9",
+      "aliases": [
+        "QZ-BOND-9"
+      ],
+      "owners": [
+        "Owen Webb",
+        "Maya Webb"
+      ],
+      "value": "112800",
+      "date": "2027-02-08",
+      "precision": "exact"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "sell",
+      "source": [
+        "QZ-GROW-4"
+      ],
+      "extent": "partial"
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "QZ-GROW-4"
+      ]
+    },
+    {
+      "kind": "retain",
+      "source": [
+        "QZ-BOND-9"
+      ]
+    }
+  ],
+  "allowed_amounts": [
+    "146700",
+    "112800",
+    "570000",
+    "130000",
+    "440000",
+    "210000"
+  ],
+  "excluded_accounts": [],
+  "required_concepts": [
+    [
+      "440,000",
+      "440k"
+    ],
+    [
+      "earnout",
+      "earn-out"
+    ],
+    [
+      "excluded",
+      "exclude",
+      "not available"
+    ],
+    [
+      "four years",
+      "four-year",
+      "4 years"
+    ]
+  ],
+  "review_concepts": [
+    [
+      "platform"
+    ],
+    [
+      "ongoing",
+      "advice"
+    ],
+    [
+      "capital",
+      "gains"
+    ],
+    [
+      "loan",
+      "timing"
+    ]
+  ],
+  "client": "reserved_commitments_partial",
+  "family": "separate_receipt_commitment_extent",
+  "partition": "reserved",
+  "source_review": {
+    "method": "Fresh synthetic specification independently authored before tuning; nested renamed text and custody JSON, no model outputs.",
+    "observations": [
+      "Amounts, dates, names, account IDs and distractor differ from supplied cases. Entire related family remains reserved."
+    ]
+  },
+  "forbidden_labels": [
+    "Eastgate Example Basket"
+  ],
+  "funding": [
+    {
+      "labels": [
+        "earnout",
+        "earn-out"
+      ],
+      "amount": "210000",
+      "status": "excluded"
+    },
+    {
+      "labels": [
+        "loan",
+        "bridging loan"
+      ],
+      "amount": "130000",
+      "status": "reserved"
+    },
+    {
+      "labels": [
+        "completion",
+        "available funding"
+      ],
+      "amount": "440000",
+      "status": "available"
+    }
+  ]
+}

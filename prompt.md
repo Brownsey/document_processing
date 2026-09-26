@@ -4,6 +4,8 @@
 
 **Prompt brevity:** Use the fewest words that preserve all required data, logic, constraints and useful insight. Remove repetition and filler. Keep wording explicit and readable; reject shortening that introduces ambiguity or weakens output quality.
 
+Cover extraction, section inclusion, investigation and validation as well as narrative slots. Each structured task must name its schema, evidence requirements, uncertainty handling and stopping rules. The first versions of new tasks establish their baseline; the original scaffold has no equivalent. Astra authors the candidate; Luna runs the reports.
+
 ### Priorities
 
 1. **Make every prompt slot-specific.**

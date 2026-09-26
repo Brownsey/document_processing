@@ -1,0 +1,149 @@
+{
+  "client": "client_03_hard",
+  "family": "supplied-development",
+  "partition": "development",
+  "source_review": {
+    "method": "Independent direct reading of all supplied DOCX paragraphs/tables, database, notes/specification and PNG statements. Authored before report generation.",
+    "observations": [
+      "16 May around 38,000 supersedes 10 March 30,000.",
+      "Inheritance cleared, around 120,000; request round figure does not erase meeting qualification.",
+      "Full GIA disposal plus inheritance funds both ISAs/new joint balance; no exact individual allocations supplied.",
+      "Jean cash status and balance unresolved; funding cannot assume it. New joint account is planned, not holding. Initial 0.5% basis unconfirmed."
+    ]
+  },
+  "accounts": [
+    {
+      "id": "H-ISA-R",
+      "aliases": [
+        "H-ISA-R",
+        "Holloway ISA (Robert)"
+      ],
+      "owners": [
+        "Robert Fletcher"
+      ],
+      "value": "70000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "H-ISA-JE",
+      "aliases": [
+        "H-ISA-JE",
+        "Holloway ISA (Jean)"
+      ],
+      "owners": [
+        "Jean Fletcher"
+      ],
+      "value": "66000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    },
+    {
+      "id": "H-GIA-JF",
+      "aliases": [
+        "H-GIA-JF",
+        "joint GIA",
+        "Holloway GIA (Joint)"
+      ],
+      "owners": [
+        "Robert Fletcher",
+        "Jean Fletcher"
+      ],
+      "value": "38000",
+      "date": "2026-05-16",
+      "precision": "approximate"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "sell",
+      "source": [
+        "H-GIA-JF",
+        "joint GIA",
+        "joint General Investment Account"
+      ],
+      "extent": "full"
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "ISAs",
+        "both ISA",
+        "H-ISA-R",
+        "Robert"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "ISAs",
+        "both ISA",
+        "H-ISA-JE",
+        "Jean"
+      ]
+    },
+    {
+      "kind": "open",
+      "destination": [
+        "joint account",
+        "joint investment account"
+      ]
+    }
+  ],
+  "initial_rate": "0.5",
+  "tax": true,
+  "allowed_amounts": [
+    "70000",
+    "66000",
+    "38000",
+    "30000",
+    "120000"
+  ],
+  "excluded_accounts": [
+    "H-CASH-JE"
+  ],
+  "forbidden_labels": [
+    "Marlow Multi-Asset Fund",
+    "Tavener Income Fund"
+  ],
+  "required_concepts": [
+    [
+      "inheritance"
+    ],
+    [
+      "late mother",
+      "mother's death",
+      "loss of your mother",
+      "mother passed away"
+    ],
+    [
+      "around",
+      "approximately",
+      "about"
+    ],
+    [
+      "balance",
+      "remaining"
+    ],
+    [
+      "moderate"
+    ]
+  ],
+  "review_concepts": [
+    [
+      "platform"
+    ],
+    [
+      "ongoing",
+      "advice"
+    ],
+    [
+      "cash",
+      "balance"
+    ],
+    [
+      "capital",
+      "gains"
+    ]
+  ]
+}

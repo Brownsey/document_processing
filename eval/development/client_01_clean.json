@@ -1,0 +1,71 @@
+{
+  "client": "client_01_clean",
+  "family": "supplied-development",
+  "partition": "development",
+  "source_review": {
+    "method": "Independent direct reading of all supplied DOCX paragraphs/tables, database, notes/specification and PNG statements. Authored before report generation.",
+    "observations": [
+      "Request scopes ISA only; cash is funding, not scoped holdings.",
+      "30 April valuation 52,000 remains current. Request initial charge 0%.",
+      "12 May decision transfers 20,000 from cash; no disposal. Gifting explicitly deferred."
+    ]
+  },
+  "accounts": [
+    {
+      "id": "H-ISA-01",
+      "aliases": [
+        "H-ISA-01",
+        "Holloway Stocks & Shares ISA",
+        "Holloway ISA"
+      ],
+      "owners": [
+        "Margaret Hughes"
+      ],
+      "value": "52000",
+      "date": "2026-04-30",
+      "precision": "exact"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "transfer",
+      "source": [
+        "cash account",
+        "H-CASH-01"
+      ],
+      "destination": [
+        "Stocks & Shares ISA",
+        "H-ISA-01",
+        "ISA"
+      ],
+      "amount": "20000"
+    }
+  ],
+  "initial_rate": "0",
+  "tax": false,
+  "allowed_amounts": [
+    "52000",
+    "20000",
+    "25000"
+  ],
+  "excluded_accounts": [
+    "H-CASH-01"
+  ],
+  "forbidden_labels": [
+    "Aldgate Growth Portfolio"
+  ],
+  "required_concepts": [
+    [
+      "moderate"
+    ]
+  ],
+  "review_concepts": [
+    [
+      "platform"
+    ],
+    [
+      "ongoing",
+      "advice"
+    ]
+  ]
+}

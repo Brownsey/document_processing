@@ -1,83 +1,27 @@
-"""Generate an advice report for a client from the template config.
-
-Usage:
-    python -m agent_pipeline.generate --client client_01_clean
-"""
+"""Command-line composition for the shared, source-backed report workflow."""
 
 import argparse
-import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
-from document_formatter.formatting import format_document
-from document_formatter.loading import read_file
-
-
-class ReportGenerator:
-    """Builds a report one section at a time from the template config."""
-
-    def __init__(self, openai_client: OpenAI, model: str) -> None:
-        self._openai = openai_client
-        self._model = model
-
-    def generate(self, config: dict, context: str) -> str:
-        instructions = config.get("global_instructions", "")
-        sections = []
-        for section in config["sections"]:
-            if not self._section_applies(section, context, instructions):
-                continue
-            sections.append(
-                {
-                    "title": section.get("title", ""),
-                    "content": self._build_section(section, context, instructions),
-                }
-            )
-        return format_document(config, sections)
-
-    def _section_applies(self, section: dict, context: str, instructions: str) -> bool:
-        rule = section.get("use_if", "always")
-        if rule == "always":
-            return True
-        verdict = self._ask(
-            f"{instructions}\n\n"
-            f"Decide whether this section applies to the client.\n"
-            f"Rule: {rule}\n"
-            f"Reply with only 'yes' or 'no'.",
-            context,
-        )
-        return verdict.lower().startswith("y")
-
-    def _build_section(self, section: dict, context: str, instructions: str) -> str:
-        content = section["template"]
-        for name, spec in section.get("placeholders", {}).items():
-            value = self._ask(f"{instructions}\n\n{spec['prompt']}", context)
-            content = content.replace(f"<<{name}>>", value)
-        return content
-
-    def _ask(self, instruction: str, context: str) -> str:
-        response = self._openai.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "user", "content": f"{context}\n\n---\n\n{instruction}"}
-            ],
-        )
-        return response.choices[0].message.content.strip()
+from agent_pipeline.contracts import Err
+from agent_pipeline.providers import create_provider
+from agent_pipeline.workflow import run_generation
 
 
-def read_client_context(client_dir: Path, filenames: list[str]) -> str:
-    """Read the named files from the client folder and concatenate them into one context string."""
-    parts = []
-    for name in filenames:
-        parts.append(f"=== {name} ===\n{read_file(client_dir / name)}")
-    return "\n\n".join(parts)
+class _UnavailableProvider:
+    def __init__(self, error):
+        self.error = error
+
+    def complete(self, **kwargs):
+        return Err(self.error)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Generate an advice report for a client."
+        description="Generate a source-backed advice report draft."
     )
     parser.add_argument("--client", required=True, help="folder name under data/")
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -85,22 +29,47 @@ def main() -> None:
         "--config", type=Path, default=Path("config/template_config.json")
     )
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
-    args = parser.parse_args()
-
+    parser.add_argument(
+        "--provider", default="openai", choices=["openai", "openrouter"]
+    )
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--base-url", default=None)
+    parser.add_argument("--cache-dir", type=Path, default=None)
+    args = parser.parse_args(argv)
+    if args.provider == "openrouter" and not args.model:
+        parser.error("--provider openrouter requires an explicit --model")
+    if (
+        Path(args.client).name != args.client
+        or args.client in {".", ".."}
+        or "/" in args.client
+        or "\\" in args.client
+    ):
+        parser.error("--client must name one folder under --data-dir")
     load_dotenv()
-    generator = ReportGenerator(OpenAI(), os.environ.get("OPENAI_MODEL", "gpt-6-luna"))
-
-    config = json.loads(args.config.read_text(encoding="utf-8"))
-    client_dir = args.data_dir / args.client
-    filenames = sorted(path.name for path in client_dir.iterdir() if path.is_file())
-    context = read_client_context(client_dir, filenames)
-    report = generator.generate(config, context)
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = args.output_dir / f"{args.client}.md"
-    out_path.write_text(report, encoding="utf-8")
-    print(f"Wrote {out_path}")
+    selected = create_provider(
+        provider=args.provider,
+        model=args.model or os.getenv("OPENAI_MODEL", "gpt-6-luna"),
+        base_url=args.base_url,
+        cache_dir=args.cache_dir,
+    )
+    provider = (
+        _UnavailableProvider(selected.error)
+        if isinstance(selected, Err)
+        else selected.value
+    )
+    result = run_generation(
+        client_dir=args.data_dir / args.client,
+        config_path=args.config,
+        output_dir=args.output_dir,
+        provider=provider,
+        cache_dir=args.cache_dir,
+    )
+    if isinstance(result, Err):
+        print(f"{result.error.stage}: {result.error.code} — {result.error.message}")
+        return 1
+    print(f"Draft needs adviser review: {result.value['output_path']}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
