@@ -385,7 +385,8 @@ def test_reextraction_is_reviewed_before_report_or_cache_release(
         assert len(provider.approved) == 1
         assert provider.approved[0].data["requested_account_ids"] == ["RIVER-9"]
     else:
-        assert isinstance(result, Err) and result.error.code == "unsupported_report"
+        # This rejection omits issue_kind, which defaults to the success-only "none".
+        assert isinstance(result, Err) and result.error.code == "invalid_response"
         assert provider.approved == []
         assert not (source_case[2] / "synthetic_report.md").exists()
 

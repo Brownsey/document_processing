@@ -14,7 +14,6 @@ import json
 import os
 import time
 from dataclasses import asdict, replace
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote
@@ -22,7 +21,6 @@ from urllib.parse import unquote
 import jsonschema
 from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError, OpenAI
 
-from agent_pipeline.budget import MoneyBudget, Prices
 from agent_pipeline.contracts import (
     ConfigError,
     Err,
@@ -36,7 +34,7 @@ from agent_pipeline.contracts import (
     Result,
 )
 
-CACHE_VERSION = "provider-v3-chat-approved"
+CACHE_VERSION = "provider-v4-chat-reasoning"
 CACHE_TASKS = {
     "extract",
     "extraction",
@@ -47,10 +45,6 @@ CACHE_TASKS = {
     "read_image",
 }
 RATES = {"gpt-6-luna": (0.10, 0.01, 0.125, 0.50), "gpt-6-astra": (10, 1, 12.5, 50)}
-
-
-class _SpendLimitError(RuntimeError):
-    pass
 
 
 def _json(value: Any) -> str:
@@ -150,7 +144,7 @@ def _provider_error(exc: APIError) -> ProviderError:
     )
 
 
-def _usage(raw: dict[str, Any], provider: str) -> dict[str, Any]:
+def _usage(raw: dict[str, Any]) -> dict[str, Any]:
     usage = raw.get("usage") or {}
     if not isinstance(usage, dict):
         raise ValueError("Invalid usage shape")
@@ -223,14 +217,11 @@ class Provider:
         client: OpenAI,
         settings: dict[str, Any],
         cache_dir: Path | None,
-        budget: MoneyBudget | None = None,
     ):
         self._client = client
         self.settings = settings
         self.cache_dir = cache_dir
-        self.budget = budget
         self.records: list[dict[str, Any]] = []
-        self.fingerprint = _digest(settings)
         self._pending_cache: dict[str, tuple[Path, str]] = {}
         self._accepted_cache: dict[str, str] = {}
         self._deadline: float | None = None
@@ -429,12 +420,14 @@ class Provider:
                 jsonschema.ValidationError,
             ):
                 pass  # Corrupt/stale entries are misses, never usable evidence.
-        content: list[dict[str, Any]] = [{"type": "input_text", "text": serialized}]
+        content: list[dict[str, Any]] = [{"type": "text", "text": serialized}]
         if image_bytes:
             content.append(
                 {
-                    "type": "input_image",
-                    "image_url": f"data:{mime};base64,{base64.b64encode(image_bytes).decode()}",
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime};base64,{base64.b64encode(image_bytes).decode()}"
+                    },
                 }
             )
         model, tier = self.settings["model"], self.settings["tier"]
@@ -447,15 +440,6 @@ class Provider:
                     return self._deadline_error()
             try:
                 raw = self._request(instructions, content, schema, timeout)
-            except _SpendLimitError:
-                self._record(task, attempt, started, "spend_limit", {}, model, tier)
-                return Err(
-                    ExecutionLimitExceeded(
-                        "spend_limit",
-                        "The local model spend limit was reached.",
-                        "provider",
-                    )
-                )
             except APIError as exc:
                 error = _provider_error(exc)
                 self._record(task, attempt, started, error.code, {}, model, tier)
@@ -478,7 +462,7 @@ class Provider:
             actual_model, actual_tier = model, tier
             parsed: Result[ModelReply, PipelineError]
             try:
-                usage = _usage(raw, self.settings["provider"])
+                usage = _usage(raw)
                 reported_model = raw.get("model")
                 if isinstance(reported_model, str) and (
                     reported_model == model or reported_model.startswith(model + "-")
@@ -524,16 +508,10 @@ class Provider:
         timeout: float,
     ) -> dict[str, Any]:
         options: dict[str, Any] = {"model": self.settings["model"], "timeout": timeout}
-        chat_content = [
-            {"type": "text", "text": part["text"]}
-            if part["type"] == "input_text"
-            else {"type": "image_url", "image_url": {"url": part["image_url"]}}
-            for part in content
-        ]
         options.update(
             messages=[
                 {"role": "system", "content": instructions},
-                {"role": "user", "content": chat_content},
+                {"role": "user", "content": content},
             ],
         )
         if self.settings["provider"] == "openai":
@@ -545,6 +523,9 @@ class Provider:
             )
         else:
             options["max_tokens"] = self.settings["max_output_tokens"]
+            options["extra_body"] = {
+                "reasoning": {"effort": self.settings["reasoning_effort"]}
+            }
         if schema:
             options["response_format"] = {
                 "type": "json_schema",
@@ -554,47 +535,9 @@ class Provider:
                     "schema": _strict_schema(schema),
                 },
             }
-        reservation = None
-        price = None
-        if self.budget is not None:
-            rates = RATES[self.settings["model"]]
-            price = Prices(Decimal(str(rates[0])) * 2, Decimal(str(rates[3])) * 2)
-            upper_bound = price.cost(
-                len(_json(options).encode("utf-8")) + 1000,
-                self.settings["max_output_tokens"],
-            )
-            try:
-                reservation = self.budget.reserve(upper_bound)
-            except RuntimeError as exc:
-                raise _SpendLimitError from exc
-        raw = None
-        overrun = False
-        try:
-            raw = self._client.chat.completions.create(**options).model_dump(
-                warnings=False
-            )
-        finally:
-            if (
-                reservation is not None
-                and self.budget is not None
-                and price is not None
-            ):
-                usage = raw.get("usage") if raw else None
-                actual = None
-                if (
-                    isinstance(usage, dict)
-                    and type(usage.get("prompt_tokens")) is int
-                    and type(usage.get("completion_tokens")) is int
-                    and usage["prompt_tokens"] >= 0
-                    and usage["completion_tokens"] >= 0
-                ):
-                    actual = price.cost(
-                        usage["prompt_tokens"], usage["completion_tokens"]
-                    )
-                overrun = self.budget.settle(reservation, actual)
-        if overrun:
-            raise _SpendLimitError
-        return raw
+        return self._client.chat.completions.create(**options).model_dump(
+            warnings=False
+        )
 
     def _parse(
         self,
@@ -657,9 +600,7 @@ def create_provider(
     max_retries: int = 2,
     max_output_tokens: int = 20_000,
     tier: str = "default",
-    reasoning_effort: str = "low",
-    cap_usd: Decimal | None = None,
-    ledger_path: Path | None = None,
+    reasoning_effort: str = "medium",
     **extra: Any,
 ) -> Result[Provider, PipelineError]:
     """Validate local settings then construct an SDK client without network I/O."""
@@ -677,16 +618,6 @@ def create_provider(
         or tier != "default"
         or reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}
         or (model == "gpt-6-astra" and reasoning_effort == "none")
-        or (
-            cap_usd is not None
-            and (
-                not isinstance(cap_usd, Decimal)
-                or not cap_usd.is_finite()
-                or cap_usd <= 0
-                or provider != "openai"
-                or model not in RATES
-            )
-        )
     ):
         return Err(
             ConfigError(
@@ -740,17 +671,10 @@ def create_provider(
         client = OpenAI(
             api_key=credential, base_url=base_url, timeout=timeout, max_retries=0
         )
-        budget = (
-            MoneyBudget(ledger_path or Path(".local/paid-budget.sqlite3"), cap_usd)
-            if cap_usd is not None
-            else None
-        )
     except (APIError, ValueError, TypeError):
         return Err(
             ConfigError(
                 "client_setup", "Provider client could not be configured.", "provider"
             )
         )
-    return Ok(
-        Provider(client, settings, Path(cache_dir) if cache_dir else None, budget)
-    )
+    return Ok(Provider(client, settings, Path(cache_dir) if cache_dir else None))

@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 import pytest
 
 
@@ -645,8 +643,11 @@ def test_support_repair_routes_to_facts_or_fixed_fact_narrative(
     assert result.value["repair_counts"][issue_kind] == 1
 
 
+@pytest.mark.parametrize("publish_anyway", [False, True])
 @pytest.mark.parametrize("issue_kind", ["facts", "narrative"])
-def test_support_repairs_exhaust_two_attempts_without_publication(tmp_path, issue_kind):
+def test_support_repairs_exhaust_two_attempts_without_publication(
+    tmp_path, issue_kind, publish_anyway
+):
     from agent_pipeline.contracts import Err, ModelReply, Ok
     from agent_pipeline.workflow import run_generation
 
@@ -678,12 +679,29 @@ def test_support_repairs_exhaust_two_attempts_without_publication(tmp_path, issu
     client, config, output, _ = configured_case(tmp_path)
     provider = RejectingProvider()
     result = run_generation(
-        client_dir=client, config_path=config, output_dir=output, provider=provider
+        client_dir=client,
+        config_path=config,
+        output_dir=output,
+        provider=provider,
+        publish_anyway=publish_anyway,
     )
-    assert isinstance(result, Err) and result.error.code == "unsupported_report"
+    if publish_anyway:
+        assert isinstance(result, Ok)
+        manifest = result.value
+        assert manifest["status"] == "published_with_issues"
+        assert manifest["published_anyway"] is True
+        assert manifest["validation"]["passed"] is False
+        assert manifest["error"]["details"]["issues"] == ["Unsupported statement"]
+        report = (output / "client.md").read_text(encoding="utf-8")
+        assert "MANUAL CORRECTION REQUIRED" in report
+        assert "Unsupported statement" in report
+        assert "## Next steps" in report
+        assert not any(key.startswith("_") for key in manifest)
+    else:
+        assert isinstance(result, Err) and result.error.code == "unsupported_report"
+        assert not (output / "client.md").exists()
     assert len([c for c in provider.calls if c["task"] == "validate_support"]) == 3
     assert provider.approved == []
-    assert not (output / "client.md").exists()
 
 
 def test_shape_and_semantic_narrative_repairs_share_two_attempts(tmp_path):
@@ -793,15 +811,21 @@ def test_original_client_only_cli_keeps_defaults_and_loads_dotenv(
         "model": "offline-placeholder-model",
         "base_url": None,
         "cache_dir": None,
-        "cap_usd": Decimal("10"),
-        "ledger_path": Path(".local/paid-budget.sqlite3"),
+        "timeout": 90,
+        "max_retries": 2,
+        "max_output_tokens": 20000,
+        "reasoning_effort": "medium",
     }
     assert calls["workflow"] == {
         "client_dir": Path("data/client_01_clean"),
         "config_path": Path("config/template_config.json"),
         "output_dir": Path("outputs"),
         "provider": fake_provider,
-        "cache_dir": None,
+        "run_timeout": 300,
+        "max_calls": 40,
+        "tone_of_voice": None,
+        "adviser_confirmations": None,
+        "publish_anyway": False,
     }
     assert (
         tmp_path / "outputs" / "client_01_clean.md"

@@ -30,7 +30,7 @@ def reviewed_case():
 This report covers Margaret Hughes's Holloway ISA.
 This firm is authorised and regulated by the Financial Conduct Authority.
 ## Background & Objectives
-You remain retired, seeking growth with moderate risk and no income requirement.
+You remain retired, seeking growth with moderate risk (risk profile 4) and no income requirement.
 | Account | Owner | Type | Value |
 | --- | --- | --- | --- |
 | H-ISA-01 | Margaret Hughes | Stocks & Shares ISA | £52,000 as at 30 April 2026 |
@@ -159,7 +159,7 @@ def test_evaluation_rerun_keeps_prior_input_snapshot(
     assert first["evaluation_id"] != second["evaluation_id"]
     assert first["fingerprints"]["inputs"] != second["fingerprints"]["inputs"]
     assert len(calls) == 2
-    assert all(call["cache_dir"] is None for call in calls)
+    assert all(call["provider"] is provider for call in calls)
     assert all("expected" not in key for call in calls for key in call)
     assert first["error"]["code"] == "authentication"
     assert first["usage"] == provider.records
@@ -302,7 +302,8 @@ def test_offline_optimizer_uses_shared_generation_and_never_promotes(
         directory=directory,
         max_metric_calls=2,
     )
-    assert len(calls) == 1 and calls[0]["cache_dir"] is None
+    assert len(calls) == 1
+    assert calls[0]["provider"].settings.get("cache_dir") is None
     assert result["promotion"] == "not_evaluated"
     assert result["review_status"] == "PENDING USER REVIEW"
     assert result["cost"]["generation"]["known_cost_usd"] == 0.02

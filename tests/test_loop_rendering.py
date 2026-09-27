@@ -33,7 +33,8 @@ def test_planned_joint_account_has_clear_joint_label_when_type_ends_with_joint()
         },
         {},
     )
-    assert "Open joint Investment account (NEW)." in text
+    assert "Open a joint investment account for Avery and Casey." in text
+    assert "NEW" not in text
 
 
 def test_shared_wrapper_destinations_keep_ids_and_one_total_without_implying_equal_split():
@@ -249,7 +250,8 @@ def test_opening_preserves_known_joint_ownership_in_its_label():
         },
         {},
     )
-    assert "Open joint Investment account (NEW)." in text
+    assert "Open a joint investment account for Rowan and Taylor." in text
+    assert "NEW" not in text
 
 
 def test_fee_confirmation_names_platforms_and_preserves_account_coverage():
@@ -273,6 +275,6 @@ def test_fee_confirmation_names_platforms_and_preserves_account_coverage():
     assert "0.3% on assets held for Cedar ISA (A)" in text
     assert "confirm platform charge rate, basis and coverage for Birch SIPP (B)" in text
     assert (
-        "confirm ongoing advice charge rate, basis and coverage for Cedar ISA (A), Birch SIPP (B)"
+        "confirm ongoing advice charge rate, basis and coverage for all accounts covered by this report"
         in text
     )

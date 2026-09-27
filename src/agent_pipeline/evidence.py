@@ -140,6 +140,9 @@ def _inventory_paths(client_dir: Path) -> Result[list[Path], PipelineError]:
                     continue
                 if not stat.S_ISREG(path.stat().st_mode):
                     return _error("unsafe_source_path", source)
+                # Word owner files describe an open editor session, not document content.
+                if name.startswith("~$") and path.suffix.casefold() == ".docx":
+                    continue
                 size = path.stat().st_size
                 total += size
                 if size > MAX_SOURCE_BYTES or total > MAX_TOTAL_BYTES:
@@ -331,7 +334,7 @@ def _read_image(
 
 
 def load_sources(
-    client_dir: Path, provider: ModelPort, cache_dir: Path | None = None
+    client_dir: Path, provider: ModelPort
 ) -> Result[EvidenceBundle, PipelineError]:
     """Preflight every local source before any image call; never follow source links.
 

@@ -23,7 +23,7 @@ from typing import Any
 
 from agent_pipeline.contracts import Err, InputError, Ok
 
-SCORER_VERSION = "source-reviewed-v2-prose-hyphens"
+SCORER_VERSION = "source-reviewed-v6-planned-table"
 FCA = "This firm is authorised and regulated by the Financial Conduct Authority."
 RISK = "The value of investments can fall as well as rise and you may get back less than you invest. Past performance is not a guide to future returns."
 MONEY = re.compile(
@@ -91,9 +91,7 @@ def _same_amount(actual: Any, expected: Any) -> bool:
 
 
 def _sentences(text: str) -> list[str]:
-    return [
-        s.strip() for s in re.split(r"(?<!\d)[.!?](?=\s|$)|\n|;", text) if s.strip()
-    ]
+    return [s.strip() for s in re.split(r"[.!?](?=\s|$)|\n|;", text) if s.strip()]
 
 
 def _is_action_claim(sentence: str) -> bool:
@@ -150,11 +148,12 @@ def _action_matches(sentence: str, action: dict) -> bool:
     if action.get("amount") and Decimal(action["amount"]) not in money_values(s):
         return False
     if re.search(
-        r"\b(?:do not|don't|should not|must not|not to|no)\s+(?:sell|transfer|invest|top|disinvest)|not recommended|cancel(?:led)?",
+        r"\b(?:not|never|no|don't)\b.{0,35}\b(?:sell|transfer|invest|top|disinvest|open|establish|creat|contribut|fund|allocat|add|split)\w*\b|not recommended|cancel(?:led)?",
         s,
     ):
         return False
     kind = action["kind"]
+    predicate = re.sub(r"\([^)]*\)", "", s)
     if (
         not action.get("amount")
         and money_values(s)
@@ -176,11 +175,18 @@ def _action_matches(sentence: str, action: dict) -> bool:
         )
     if kind == "retain":
         return bool(re.search(r"\b(retain\w*|keep|leave|unchanged|hold)\b", s))
+    lead = r"(?:^[-* ]*|\b(?:recommend(?:ation is)?|propose|advise|agree)(?: that)?(?: you| we)?(?: to)?\s+|\b(?:should|will|must|then|and|please)\s+)"
     if kind == "open":
-        return bool(re.search(r"\b(open\w*|establish\w*|new|create\w*)\b", s))
+        return bool(
+            re.search(
+                lead + r"(?:open(?:ing)?|establish(?:ing)?|creat(?:e|ing))\b",
+                predicate,
+            )
+        )
     if not re.search(
-        r"\b(transfer\w*|mov\w*|top[ -]?up\w*|topping up|contribut\w*|fund\w*|invest\w*|allocat\w*|add\w*|split\w*)\b",
-        s,
+        lead
+        + r"(transfer(?:ring|red)?|mov(?:e|ing)|top[ -]?up|topping up|contribut(?:e|ing)|fund(?:ing)?|invest(?:ing)?|allocat(?:e|ing)|add(?:ing)?|split(?:ting)?)\b",
+        predicate,
     ):
         return False
     if source and dest:
@@ -206,6 +212,11 @@ def score_report(
     def check(category: str, name: str, passed: bool) -> None:
         checks.append({"category": category, "name": name, "passed": bool(passed)})
 
+    check(
+        "validation",
+        "no publication override",
+        not manifest.get("published_anyway", False),
+    )
     chunks = re.split(r"^##\s+(.+?)\s*$", report, flags=re.M)
     headings = chunks[1::2]
     bodies = chunks[2::2]
@@ -311,6 +322,7 @@ def score_report(
                 == account.get("precision", "exact"),
             )
         for index, action in enumerate(expected["actions"]):
+            required_destinations = set(action.get("destination", [])) & expected_ids
             possible = []
             for actual in facts.get("actions", []):
                 if actual.get("status") not in {"agreed", "conditional"}:
@@ -328,16 +340,27 @@ def score_report(
                 )
                 for planned in facts.get("planned_accounts", []):
                     if planned["account_id"] in destinations:
-                        destination_text += " joint account " + json.dumps(planned)
+                        destination_text += " " + json.dumps(planned)
+                        owners = {
+                            owner.strip().casefold()
+                            for owner in planned.get("owners", [])
+                            if owner.strip()
+                        }
+                        if len(owners) > 1:
+                            destination_text += " joint account joint " + planned.get(
+                                "account_type", "account"
+                            )
                 # Account type plurals express allocations across multiple existing accounts.
                 destination_text += (
                     " ISAs"
-                    if destinations and all("ISA" in i.upper() for i in destinations)
+                    if len(destinations) > 1
+                    and all("ISA" in i.upper() for i in destinations)
                     else ""
                 )
                 destination_text += (
                     " SIPPs"
-                    if destinations and all("SIPP" in i.upper() for i in destinations)
+                    if len(destinations) > 1
+                    and all("SIPP" in i.upper() for i in destinations)
                     else ""
                 )
                 possible.append(
@@ -346,7 +369,9 @@ def score_report(
                         or _contains(source_text, action["source"])
                     )
                     and (
-                        not action.get("destination")
+                        bool(required_destinations.intersection(destinations))
+                        if required_destinations
+                        else not action.get("destination")
                         or _contains(destination_text, action["destination"])
                     )
                     and (
@@ -369,9 +394,71 @@ def score_report(
         and "---" not in line
         and not re.search(r"\|\s*Account\s*\|", line, re.I)
     ]
-    check("accounts", "holdings row count", len(rows) == len(expected["accounts"]))
+    planned_rows = [
+        r
+        for r in rows
+        if re.match(r"\|\s*(?:proposed|planned)\b", r, re.I)
+        and re.search(r"\|\s*not (?:yet )?opened\s*\|\s*$", r, re.I)
+    ]
+    openings = [a for a in expected["actions"] if a["kind"] == "open"]
+    supported_planned = [
+        a
+        for a in (facts or {}).get("planned_accounts", [])
+        if a["account_id"] in (facts or {}).get("requested_account_ids", [])
+    ]
+    matched_planned = set()
+    check("accounts", "planned account row count", len(planned_rows) == len(openings))
+    for row in planned_rows:
+        cells = [
+            c.strip().replace(r"\|", "|") for c in re.split(r"(?<!\\)\|", row)[1:-1]
+        ]
+        matched = None
+        for a in supported_planned:
+            label = f"{a.get('platform', '')} {a.get('account_type', '')}"
+            if (
+                len(a.get("owners", [])) > 1
+                and "joint" not in a.get("account_type", "").lower()
+            ):
+                label += " joint"
+            if (
+                len(cells) == 4
+                and a["account_id"] not in matched_planned
+                and _normal(cells[1]) == _normal(" and ".join(a.get("owners", [])))
+                and _normal(cells[2]) == _normal(a.get("account_type", ""))
+                and sorted(re.findall(r"\w+", _normal(cells[0]))[1:])
+                == sorted(re.findall(r"\w+", _normal(label)))
+            ):
+                matched = a
+                break
+        if matched:
+            matched_planned.add(matched["account_id"])
+        check(
+            "accounts",
+            "planned row is authorised and has no current value",
+            matched is not None
+            and any(_contains(cells[0], a.get("destination", [])) for a in openings)
+            and not money_values(row)
+            and bool(re.search(r"not (?:yet )?opened", row, re.I)),
+        )
+    check(
+        "accounts",
+        "scoped planned accounts appear once",
+        matched_planned == {a["account_id"] for a in supported_planned},
+    )
+    for opening in openings:
+        check(
+            "accounts",
+            "planned opening appears in table",
+            any(_contains(row, opening.get("destination", [])) for row in planned_rows),
+        )
+    existing_rows = [r for r in rows if r not in planned_rows]
+    check(
+        "accounts",
+        "holdings row count",
+        len(existing_rows) == len(expected["accounts"]),
+    )
     for account in expected["accounts"]:
-        matching = [r for r in rows if _contains(r, account["aliases"])]
+        matching = [r for r in existing_rows if _contains(r, account["aliases"])]
         check("accounts", f"{account['id']} appears once", len(matching) == 1)
         row = matching[0] if matching else ""
         check(
@@ -509,7 +596,8 @@ def score_report(
             "review",
             "confirmation: " + "/".join(concepts),
             any(
-                all(_contains(s, [term]) for term in concepts) and REVIEW.search(s)
+                all(_contains(s, [term, term + "s"]) for term in concepts)
+                and REVIEW.search(s)
                 for s in _sentences(report)
             ),
         )
@@ -620,26 +708,24 @@ def _read_inputs(client_dir: Path):
     captured: dict[str, bytes] = {}
     if isinstance(inventory, Err):
         return inventory
-    if isinstance(inventory, Ok):
-        try:
-            root = client_dir.resolve(strict=True)
-            for source in inventory.value:
-                raw = _source_bytes(source, root)
-                if (
-                    len(raw) > MAX_SOURCE_BYTES
-                    or sum(map(len, captured.values())) + len(raw) > MAX_TOTAL_BYTES
-                ):
-                    raise ValueError("Source exceeded bounds")
-                captured[source.relative_to(root).as_posix()] = raw
-        except (OSError, ValueError):
-            captured = {}
-            return Err(
-                InputError(
-                    "unsafe_source_path",
-                    "Client source could not be snapshotted safely.",
-                    stage="evidence",
-                )
+    try:
+        root = client_dir.resolve(strict=True)
+        for source in inventory.value:
+            raw = _source_bytes(source, root)
+            if (
+                len(raw) > MAX_SOURCE_BYTES
+                or sum(map(len, captured.values())) + len(raw) > MAX_TOTAL_BYTES
+            ):
+                raise ValueError("Source exceeded bounds")
+            captured[source.relative_to(root).as_posix()] = raw
+    except (OSError, ValueError):
+        return Err(
+            InputError(
+                "unsafe_source_path",
+                "Client source could not be snapshotted safely.",
+                stage="evidence",
             )
+        )
     return Ok(captured)
 
 
@@ -664,11 +750,20 @@ def evaluate_case(
     expected_path: Path,
     output_dir: Path,
     provider: Any,
+    run_timeout: float = 300,
+    max_calls: int = 40,
+    tone_of_voice: str | None = None,
+    adviser_confirmations: str | None = None,
+    publish_anyway: bool = False,
 ) -> dict:
     from agent_pipeline.generate import run_generation
 
     expected = json.loads(expected_path.read_text(encoding="utf-8"))
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    if tone_of_voice is not None:
+        config["tone_of_voice"] = tone_of_voice
+    if adviser_confirmations is not None:
+        config["adviser_confirmations"] = adviser_confirmations
     evaluation_id = uuid.uuid4().hex
     output_dir = output_dir / evaluation_id
     if output_dir.resolve().is_relative_to(client_dir.resolve()):
@@ -687,7 +782,11 @@ def evaluate_case(
         "config": fingerprint(config),
         "scorer": fingerprint_files([Path(__file__)]),
         "code": fingerprint_files(list(Path(__file__).parent.glob("*.py"))),
+        "publish_anyway": fingerprint(publish_anyway),
         "model_settings": fingerprint(getattr(provider, "settings", {})),
+        "execution_limits": fingerprint(
+            {"timeout": run_timeout, "max_calls": max_calls}
+        ),
     }
     snapshot = output_dir / "snapshot"
     snapshot.mkdir(parents=True, exist_ok=True)
@@ -702,8 +801,8 @@ def evaluate_case(
         destination = source_snapshot / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(raw)
+    (snapshot / "code").mkdir(exist_ok=True)
     for source in Path(__file__).parent.glob("*.py"):
-        (snapshot / "code").mkdir(exist_ok=True)
         shutil.copyfile(source, snapshot / "code" / source.name)
     started = time.monotonic()
     result = input_error or run_generation(
@@ -711,7 +810,9 @@ def evaluate_case(
         config_path=snapshot / "config.json",
         output_dir=output_dir,
         provider=provider,
-        cache_dir=None,
+        run_timeout=run_timeout,
+        max_calls=max_calls,
+        publish_anyway=publish_anyway,
     )
     elapsed = time.monotonic() - started
     if isinstance(result, Err):
@@ -743,7 +844,6 @@ def evaluate_case(
             "source_snapshot": str(source_snapshot.resolve()),
         }
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"evaluation-{outcome['evaluation_id']}.json").write_text(
         json.dumps(outcome, indent=2, default=str), encoding="utf-8"
     )
@@ -783,7 +883,7 @@ def advisory_judge(
     bounded = BudgetPort(provider, timeout=300, max_calls=16)
     records = getattr(provider, "usage_records", getattr(provider, "records", []))
     initial_records = len(records)
-    sources = load_sources(client_dir, bounded, cache_dir=None)
+    sources = load_sources(client_dir, bounded)
     result: dict[str, Any]
     if isinstance(sources, Err):
         result = {
@@ -1236,6 +1336,12 @@ def compare_finalist(
 
 
 def main(argv: list[str] | None = None) -> int:
+    from agent_pipeline.cli import (
+        add_runtime_arguments,
+        provider_options,
+        workflow_options,
+    )
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config", type=Path, default=Path("config/template_config.json")
@@ -1257,13 +1363,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output-dir", type=Path, default=Path(".local/evaluations"))
     parser.add_argument("--mode", choices=["evaluate", "compare"], default="evaluate")
-    parser.add_argument("--model", default="gpt-6-luna")
+    add_runtime_arguments(parser)
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--mlflow", action="store_true")
     args = parser.parse_args(argv)
     from dotenv import load_dotenv
 
     load_dotenv()
+    settings = provider_options(args, parser)
     if (
         not 1 <= args.repetitions <= 2
         or args.mode == "compare"
@@ -1272,6 +1379,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Use 1–2 repetitions; compare requires --baseline-config.")
     from agent_pipeline.providers import create_provider
 
+    if any(
+        Path(client).name != client
+        or client in {".", ".."}
+        or "/" in client
+        or "\\" in client
+        for client in args.clients
+    ):
+        parser.error("Client must be a directory name, not a path.")
     root = args.output_dir / uuid.uuid4().hex
     runs = []
     configs = [("candidate", args.config)]
@@ -1280,10 +1395,8 @@ def main(argv: list[str] | None = None) -> int:
     stopping_reason = None
     for label, config_path in configs:
         for client in args.clients:
-            if Path(client).name != client or client in {".", ".."}:
-                parser.error("Client must be a directory name, not a path.")
             for repeat in range(args.repetitions):
-                provider = create_provider(model=args.model)
+                provider = create_provider(**settings)
                 if isinstance(provider, Err):
                     result: dict[str, Any] = {
                         "passed": False,
@@ -1305,6 +1418,7 @@ def main(argv: list[str] | None = None) -> int:
                         expected_path=args.expectations_dir / f"{client}.json",
                         output_dir=root / label / client / str(repeat + 1),
                         provider=provider.value,
+                        **workflow_options(args),
                     )
                 result["variant"] = label
                 runs.append(result)

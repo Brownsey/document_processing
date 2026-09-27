@@ -1,8 +1,10 @@
 """Deterministic presentation of reconciled facts; never calculates advice."""
 
+import re
 from datetime import date
 from decimal import Decimal
 
+from agent_pipeline.domain import ISA_DISPOSAL_HOLD
 from agent_pipeline.validation import RISK_WARNING
 
 
@@ -34,7 +36,7 @@ def money(value: dict | None, *, dated: bool = False) -> str:
     return text
 
 
-def account_label(account: dict) -> str:
+def account_label(account: dict, *, include_owners: bool = True) -> str:
     kind = account.get("account_type", "")
     if account.get("status") == "planned" and kind.casefold().endswith(" (joint)"):
         kind = "joint " + kind[:-8]
@@ -44,13 +46,21 @@ def account_label(account: dict) -> str:
         and "joint" not in kind.lower()
     ):
         kind = "joint " + kind
+    if account.get("status") == "planned":
+        kind = kind.replace("Investment account", "investment account")
+        if not kind.isupper():
+            kind = kind[:1].lower() + kind[1:]
     return " ".join(
         filter(
             None,
             [
                 account.get("platform"),
                 kind,
-                f"({account['account_id']})",
+                f"({account['account_id']})"
+                if account.get("status") != "planned"
+                else "for " + " and ".join(account["owners"])
+                if include_owners and account.get("owners")
+                else "",
             ],
         )
     )
@@ -85,50 +95,46 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
     if renderer == "risk_warning":
         return config.get("risk_warning", RISK_WARNING)
     if renderer == "scope":
-        if len(scoped_accounts(facts)) > 4:
-            groups: dict[tuple[str, str, bool], int] = {}
-            for account in scoped_accounts(facts):
-                key = (
-                    account.get("platform", ""),
-                    account.get("account_type", ""),
-                    len(account.get("owners", [])) > 1,
-                )
-                groups[key] = groups.get(key, 0) + 1
-            descriptions = [
-                f"{platform} {'joint ' if joint and 'joint' not in kind.lower() else ''}{kind}{'s' if count > 1 else ''}"
-                for (platform, kind, joint), count in groups.items()
-            ]
-            descriptions += [
-                "a proposed "
-                + (
-                    "joint "
-                    if len(a.get("owners", [])) > 1
-                    and "joint" not in a.get("account_type", "").lower()
-                    else ""
-                )
-                + a.get("account_type", "investment account")
-                for a in facts.get("planned_accounts", [])
-                if a["account_id"] in facts.get("requested_account_ids", [])
-            ]
-            return "your " + ", ".join(descriptions)
-        descriptions = [
-            f"{account_label(a)} held by {' and '.join(a['owners'])}"
-            for a in scoped_accounts(facts)
-        ]
+        groups = {}
+        scoped = scoped_accounts(facts)
+        for account in scoped:
+            key = (
+                account.get("platform", ""),
+                account.get("account_type", ""),
+                len(account.get("owners", [])) > 1,
+            )
+            groups.setdefault(key, []).append(account["account_id"])
+        descriptions = []
+        for (platform, kind, joint), identifiers in groups.items():
+            label = f"{platform} {'joint ' if joint and 'joint' not in kind.lower() else ''}{kind}{'s' if len(identifiers) > 1 and not kind.endswith('s') else ''}".strip()
+            if len(scoped) <= 4:
+                label += " (" + " and ".join(identifiers) + ")"
+            descriptions.append(label)
         descriptions += [
-            f"the proposed {account_label(a)} for {' and '.join(a['owners'])}"
+            f"the proposed {account_label(a | {'status': 'planned'})}"
             for a in facts.get("planned_accounts", [])
             if a["account_id"] in facts.get("requested_account_ids", [])
         ]
-        return "; ".join(descriptions)
+        return "your " + (
+            ", ".join(descriptions[:-1]) + " and " + descriptions[-1]
+            if len(descriptions) > 1
+            else "".join(descriptions)
+        )
     if renderer == "holdings":
         rows = ["| Account | Owner | Type | Value |", "|---|---|---|---|"]
-        for a in scoped_accounts(facts):
+        planned = [
+            a | {"status": "planned"}
+            for a in facts.get("planned_accounts", [])
+            if a["account_id"] in facts.get("requested_account_ids", [])
+        ]
+        for a in scoped_accounts(facts) + planned:
+            unopened = a.get("status") == "planned"
             cells = [
-                account_label(a),
+                ("Proposed " if unopened else "")
+                + account_label(a, include_owners=False),
                 " and ".join(a["owners"]),
                 a["account_type"],
-                money(a.get("valuation"), dated=True),
+                "Not yet opened" if unopened else money(a.get("valuation"), dated=True),
             ]
             rows.append(
                 "| "
@@ -144,14 +150,13 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
         return "The proposed disposal may create a capital gains tax liability, assessed against the annual exempt amount. Your adviser must confirm acquisition costs, realised gains, available exemptions and any tax due before implementation; no tax estimate is provided. [REVIEW REQUIRED: confirm capital gains tax position and amount]"
     if renderer == "fees":
         lines = []
-        kinds = set()
         accounts = {
             a["account_id"]: a
-            for a in facts.get("accounts", []) + facts.get("planned_accounts", [])
+            for a in facts.get("accounts", [])
+            + [a | {"status": "planned"} for a in facts.get("planned_accounts", [])]
         }
         for fee in facts.get("fees", []):
             kind = fee.get("kind", "charge")
-            kinds.add(kind)
             rate = fee.get("rate_percent")
             amount = fee.get("amount")
             figure = (
@@ -178,14 +183,6 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                 + (f" for {coverage}" if coverage else "")
                 + "."
             )
-        for kind, label in (
-            ("platform", "Platform"),
-            ("ongoing_advice", "Ongoing advice"),
-        ):
-            if kind not in kinds:
-                lines.append(
-                    f"{label} charge: adviser confirmation required before finalising."
-                )
         platforms = list(
             dict.fromkeys(
                 a.get("platform", "")
@@ -193,10 +190,12 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                 if a.get("platform")
             )
         )
-        if platforms:
-            lines.append("Relevant platforms: " + ", ".join(platforms) + ".")
-        if facts.get("planned_accounts"):
-            lines.append("Charges for planned accounts also require confirmation.")
+        covered_accounts = scoped_accounts(facts) + [
+            a | {"status": "planned"}
+            for a in facts.get("planned_accounts", [])
+            if a["account_id"] in facts.get("requested_account_ids", [])
+        ]
+        pending_charges = {}
         for kind, label in (
             ("platform", "platform"),
             ("ongoing_advice", "ongoing advice"),
@@ -209,34 +208,48 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                 and (fee.get("rate_percent") is not None or fee.get("amount"))
             ]
             covered = {key for fee in confirmed for key in fee.get("account_ids", [])}
-            pending = [
-                a for a in scoped_accounts(facts) if a["account_id"] not in covered
-            ]
-            if pending:
-                lines.append(
-                    f"[REVIEW REQUIRED: confirm {label} charge rate, basis and coverage for "
-                    + ", ".join(account_label(a) for a in pending)
-                    + "]"
+            pending = tuple(
+                a["account_id"]
+                for a in covered_accounts
+                if a["account_id"] not in covered
+            )
+            if pending or not confirmed:
+                pending_charges.setdefault(pending, []).append(label)
+        for identifiers, labels in pending_charges.items():
+            if identifiers and set(identifiers) == {
+                a["account_id"] for a in covered_accounts
+            }:
+                coverage = "all accounts covered by this report"
+                if platforms:
+                    coverage += " (existing platforms: " + ", ".join(platforms) + ")"
+                if any(a.get("status") == "planned" for a in covered_accounts):
+                    coverage += ", including the proposed accounts"
+            else:
+                coverage = ", ".join(
+                    account_label(accounts[key]) for key in identifiers
                 )
-            elif not any(
-                fee.get("kind") == kind
-                and fee.get("confirmed")
-                and (fee.get("rate_percent") is not None or fee.get("amount"))
-                for fee in facts.get("fees", [])
-            ):
-                lines.append(
-                    f"[REVIEW REQUIRED: confirm {label} charge rate and basis]"
-                )
+            charges = " and ".join(label + " charge" for label in labels)
+            lines.append(
+                f"[REVIEW REQUIRED: confirm {charges} rate, basis and coverage"
+                + (f" for {coverage}" if coverage else "")
+                + "]"
+            )
         return " ".join(lines)
-    if renderer == "actions":
+    if renderer in {"actions", "action_plan", "adviser_queries"}:
         accounts = {
             a["account_id"]: a
-            for a in facts.get("accounts", []) + facts.get("planned_accounts", [])
+            for a in facts.get("accounts", [])
+            + [a | {"status": "planned"} for a in facts.get("planned_accounts", [])]
         }
 
         def action_label(identifier):
             return (
-                account_label(accounts[identifier])
+                (
+                    "the proposed "
+                    if accounts[identifier].get("status") == "planned"
+                    else ""
+                )
+                + account_label(accounts[identifier])
                 if identifier in accounts
                 else "source/destination requires confirmation"
             )
@@ -258,16 +271,95 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                 ).strip()
             return " and ".join(action_label(identifier) for identifier in identifiers)
 
-        lines = []
-        verbs = {
-            "contribute": "Contribute",
-            "transfer": "Transfer",
-            "dispose": "Sell",
-            "retain": "Retain",
-            "open": "Open",
-        }
+        reviews = _review_items(facts, config.get("adviser_confirmations", "full"))
+        holds = [item for item in reviews if item.get("code") == "isa_funding_conflict"]
+        query_lines = []
+        outstanding = [item for item in reviews if item not in holds]
+        if outstanding:
+            query_lines.append("\n**Adviser confirmations:**\n")
+        for item in outstanding:
+            query_lines.append(
+                "[REVIEW REQUIRED: "
+                + item.get(
+                    "message",
+                    item.get(
+                        "description", "Unresolved evidence requires confirmation"
+                    ),
+                ).rstrip(". ")
+                + (
+                    " ("
+                    + destination_labels(
+                        [x for x in item.get("account_ids", []) if x in accounts]
+                    )
+                    + ")"
+                    if any(x in accounts for x in item.get("account_ids", []))
+                    else ""
+                )
+                + ".]\n"
+            )
+        lines = (
+            [
+                "**IMPLEMENTATION PAUSED — adviser clarification required.**\n\n"
+                + "\n\n".join(
+                    "[REVIEW REQUIRED: " + item["message"] + "]" for item in holds
+                )
+                + "\n\nRecorded plan, subject to that clarification:\n"
+            ]
+            if holds
+            else []
+        )
+        funding_lines = []
+        for receipt in facts.get("receipts", []):
+            if receipt.get("status") in {"pending", "contingent"}:
+                funding_lines.append(
+                    f"{receipt.get('description', 'Expected proceeds').rstrip('. ')} ({money(receipt.get('amount'))}) is {receipt['status']} and excluded from available funding."
+                )
+            elif receipt.get("status") == "received" and not receipt.get(
+                "source_account_id"
+            ):
+                funding_lines.append(
+                    f"Funds received: {receipt.get('description', 'funds').rstrip('. ')}: {money(receipt.get('amount'))}."
+                )
+        for commitment in facts.get("commitments", []):
+            state = "already paid" if commitment.get("status") == "paid" else "reserved"
+            funding_lines.append(
+                f"{money(commitment.get('amount'))} {state} for {commitment['description'].rstrip('. ')}."
+            )
+        for balance in facts.get("funding_balances", []):
+            funding_lines.append(
+                f"Available funding after linked commitments: {money(balance.get('available') or balance.get('amount'))}."
+            )
+        active = [
+            a
+            for a in facts.get("actions", [])
+            if a.get("status", "agreed") in {"agreed", "conditional"}
+        ]
+        if active and all(
+            a.get("kind") == "transfer"
+            and "cash"
+            in accounts.get(a.get("source_account_id"), {})
+            .get("account_type", "")
+            .lower()
+            for a in active
+        ):
+            funding_lines.append(
+                "No investments are being sold; these transfers use existing cash."
+            )
+        if funding_lines:
+            lines.append(" ".join(funding_lines) + "\n")
         funding = {r["receipt_id"]: r for r in facts.get("receipts", [])}
-        for action in facts.get("actions", []):
+        # Stable presentation order; source timing and conditions remain attached.
+        priority = {
+            "dispose": 0,
+            "open": 1,
+            "transfer": 2,
+            "contribute": 2,
+            "rebalance": 3,
+            "retain": 4,
+        }
+        for action in sorted(
+            facts.get("actions", []), key=lambda a: priority.get(a["kind"], 5)
+        ):
             kind = action["kind"]
             source = action.get("source_account_id")
             destinations = action.get("destination_account_ids", [])
@@ -296,7 +388,11 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                     if amount
                     else "the combined funds"
                 )
-                text = f"Combine the proceeds from {action_label(source)} with the linked received funds. Allocate {allocation} to {target}."
+                sources = " and ".join(
+                    funding[x]["description"].rstrip(". ")
+                    for x in action["source_funding_ids"]
+                )
+                text = f"Combine the proceeds from {action_label(source)} with {sources}. Allocate {allocation} to {target}."
             elif kind == "rebalance":
                 target = (
                     action_label(source)
@@ -319,26 +415,41 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                     if extent == "partial"
                     else ""
                 )
-                text = f"{verbs.get(kind, kind.capitalize())} {quantity}{target}."
+                verb = "Sell" if kind == "dispose" else kind.capitalize()
+                text = f"{verb} {quantity}{target}."
             elif kind == "open":
                 text = (
-                    "Open " + " and ".join(action_label(x) for x in destinations) + "."
+                    "Open "
+                    + " and ".join(
+                        "a " + account_label(accounts[x])
+                        if accounts[x].get("status") == "planned"
+                        else action_label(x)
+                        for x in destinations
+                    )
+                    + "."
                 )
-            elif kind == "confirm":
+            elif kind in {"confirm", "exclude"}:
                 text = (
-                    action.get("rationale") or "Confirm the outstanding details"
+                    action.get("rationale")
+                    or (
+                        "This item is outside the current recommendations"
+                        if kind == "exclude"
+                        else "Confirm the outstanding details"
+                    )
                 ).rstrip(". ")
                 if source:
                     text += f" ({action_label(source)})"
+                if kind == "exclude" and destinations:
+                    text += f" ({destination_labels(destinations)})"
                 text += "."
             else:
-                text = f"{verbs.get(kind, kind.capitalize())} {amount or 'an amount to be confirmed'}"
+                text = f"{kind.capitalize()} {amount or 'an amount to be confirmed'}"
                 if source:
                     text += f" from {action_label(source)}"
                 if destinations:
                     text += " to " + destination_labels(destinations)
                 text += "."
-            if action.get("source_funding_ids"):
+            if action.get("source_funding_ids") and not pooled:
                 text += (
                     " Funding: "
                     + "; ".join(
@@ -354,75 +465,126 @@ def render_slot(renderer: str, facts: dict, config: dict) -> str:
                 ("timing", "Timing"),
             ):
                 if action.get(field):
-                    text += f" {prefix}: {action[field].rstrip('. ')}."
-            if action.get("conditions"):
+                    text += (
+                        " " + action[field].rstrip(". ") + "."
+                        if field == "allocation_rule"
+                        else f" {prefix}: {action[field].rstrip('. ')}."
+                    )
+            held = ISA_DISPOSAL_HOLD in action.get("conditions", [])
+            conditions = [
+                c
+                for c in action.get("conditions", [])
+                if not (
+                    held
+                    and c
+                    in {
+                        ISA_DISPOSAL_HOLD,
+                        "ISA top-ups are subject to each account's remaining allowance",
+                    }
+                )
+            ]
+            if conditions:
                 text += (
                     " Conditions: "
-                    + "; ".join(c.rstrip(". ") for c in action["conditions"])
+                    + "; ".join(c.rstrip(". ") for c in conditions)
                     + "."
                 )
-            if action.get("status") == "conditional":
+            if action.get("status") == "conditional" and not held:
                 text += " Do not implement until these conditions are resolved."
-            lines.append("- " + text)
-        active = [
-            a
-            for a in facts.get("actions", [])
-            if a.get("status", "agreed") in {"agreed", "conditional"}
-        ]
-        if active and all(
-            a.get("kind") == "transfer"
-            and "cash"
-            in accounts.get(a.get("source_account_id"), {})
-            .get("account_type", "")
-            .lower()
-            for a in active
-        ):
-            lines.append(
-                "- No investments are being sold; these transfers use existing cash."
-            )
-        for receipt in facts.get("receipts", []):
-            if receipt.get("status") == "contingent":
-                lines.append(
-                    f"- {receipt.get('description', 'Contingent proceeds').rstrip('. ')} ({money(receipt.get('amount'))}) is contingent and excluded from available funding."
-                )
-            elif receipt.get("status") == "received" and not receipt.get(
-                "source_account_id"
-            ):
-                lines.append(
-                    f"- Received {receipt.get('description', 'funds').rstrip('. ')}: {money(receipt.get('amount'))}."
-                )
-        for commitment in facts.get("commitments", []):
-            state = "already paid" if commitment.get("status") == "paid" else "reserved"
-            lines.append(
-                f"- {money(commitment.get('amount'))} {state} for {commitment['description'].rstrip('. ')}."
-            )
-        for balance in facts.get("funding_balances", []):
-            lines.append(
-                f"- Available funding after linked commitments: {money(balance.get('available') or balance.get('amount'))}."
-            )
-        for item in facts.get("review_items", []):
-            if item.get("code") in {"platform_fees", "ongoing_advice_fees"}:
-                continue
-            lines.append(
-                "- [REVIEW REQUIRED: "
-                + item.get(
-                    "message",
-                    item.get(
-                        "description", "Unresolved evidence requires confirmation"
-                    ),
-                ).rstrip(". ")
-                + (
-                    " ("
-                    + ", ".join(
-                        action_label(x)
-                        for x in item.get("account_ids", [])
-                        if x in accounts
-                    )
-                    + ")"
-                    if any(x in accounts for x in item.get("account_ids", []))
-                    else ""
-                )
-                + ".]"
-            )
+            if kind == "confirm":
+                query_lines.append(text)
+            elif kind == "exclude" or action.get("status") in {"future", "excluded"}:
+                lines.append("\n" + text + "\n")
+            else:
+                lines.append("- " + text)
+        if renderer == "adviser_queries":
+            return "\n".join(query_lines)
+        if renderer == "actions":
+            lines.extend(query_lines)
         return "\n".join(lines)
     raise ValueError("Unknown renderer")
+
+
+def _review_items(facts: dict, mode: str = "full") -> list[dict]:
+    # Merge presentation only; the manifest retains every original review item.
+    candidates = facts.get("review_items", []) + [
+        item | {"category": "discrepancy"} for item in facts.get("conflicts", [])
+    ]
+    items = [
+        dict(item)
+        for item in candidates
+        if item.get("code") not in {"platform_fees", "ongoing_advice_fees"}
+        and (
+            mode == "full"
+            or item.get("category") == "discrepancy"
+            or item.get("code") == "isa_funding_conflict"
+            or item.get("blocking")
+        )
+    ]
+    held_accounts = {
+        key
+        for item in items
+        if item.get("code") == "isa_funding_conflict"
+        for key in item.get("account_ids", [])
+    }
+    items = [
+        item
+        for item in items
+        if not (
+            item.get("code") in {"isa_capacity", "allocation_confirmation"}
+            and item.get("message")
+            in {
+                "Confirm existing subscriptions, remaining ISA capacity and treatment of excess proceeds before implementation.",
+                "Confirm existing subscriptions and each recipient's remaining ISA allowance for the relevant tax year before implementation.",
+                "Confirm exact available funding and allocation amounts before implementation.",
+                "Confirm allocation amounts before implementation.",
+            }
+            and not item.get("blocking")
+            and item.get("account_ids")
+            and set(item["account_ids"]) <= held_accounts
+        )
+    ]
+    redundant = set()
+    for index, item in enumerate(items):
+        if (
+            item.get("code") != "missing_balance"
+            or not item.get("account_ids")
+            or item.get("blocking")
+        ):
+            continue
+        for other in items:
+            message = other.get("message", "")
+            if (
+                other.get("code") != "missing_balance"
+                and not other.get("blocking")
+                and set(other.get("account_ids", [])) == set(item["account_ids"])
+                and re.match(r"(?:confirm|verify|establish)\b", message, re.I)
+                and re.search(r"\bbalance\b", message, re.I)
+                and not re.search(
+                    r"\b(?:not|no|never|after|until|next|when|once|unless|only|if|before|later|during|on|by|at|fee|charge|basis)\b",
+                    message,
+                    re.I,
+                )
+                and (
+                    "status" not in item.get("message", "").lower()
+                    or re.search(r"\b(?:status|active)\b", message, re.I)
+                )
+            ):
+                other["message"] = message.rstrip(". ") + " before finalising."
+                redundant.add(index)
+                break
+    grouped = {}
+    for index, item in enumerate(items):
+        if index in redundant:
+            continue
+        message = item.get(
+            "message",
+            item.get("description", "Unresolved evidence requires confirmation"),
+        )
+        key = (message.strip().rstrip(".").casefold(), item.get("blocking", False))
+        if key not in grouped:
+            grouped[key] = dict(item, account_ids=[])
+        grouped[key]["account_ids"] = list(
+            dict.fromkeys(grouped[key]["account_ids"] + item.get("account_ids", []))
+        )
+    return list(grouped.values())

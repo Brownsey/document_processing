@@ -140,6 +140,10 @@ class Fee(FactModel):
 class ReviewItem(FactModel):
     code: str
     message: str
+    category: Literal["confirmation", "discrepancy"] = Field(
+        default="confirmation",
+        description="Use discrepancy only for conflicting source facts or instructions; missing figures, rationale or routine checks are confirmation. Material unresolved conflicts must still block generation.",
+    )
     account_ids: list[str] = Field(default_factory=list)
     blocking: bool = False
     refs: list[SourceRef] = Field(default_factory=list)
@@ -205,20 +209,7 @@ def _dates(text: str) -> set[date]:
     months = {
         name.lower(): index
         for index, name in enumerate(
-            (
-                "January",
-                "February",
-                "March",
-                "April",
-                "May",
-                "June",
-                "July",
-                "August",
-                "September",
-                "October",
-                "November",
-                "December",
-            ),
+            "January February March April May June July August September October November December".split(),
             1,
         )
     }
@@ -445,9 +436,136 @@ def _database_accounts(
 def _review(
     facts: CaseFacts, code: str, message: str, account_ids: list[str] | None = None
 ) -> None:
-    item = ReviewItem(code=code, message=message, account_ids=account_ids or [])
+    item = ReviewItem(
+        code=code,
+        message=message,
+        account_ids=account_ids or [],
+        category="discrepancy" if code == "valuation_conflict" else "confirmation",
+    )
     if item not in facts.review_items:
         facts.review_items.append(item)
+
+
+# Adult ISA subscription ceiling, verified 27 September 2026:
+# https://www.gov.uk/individual-savings-accounts (2026/27 tax year).
+# Unlisted years require adviser confirmation; never roll a limit forward silently.
+ISA_ANNUAL_LIMITS = {"2026/27": Decimal("20000")}
+ISA_DISPOSAL_HOLD = (
+    "Resolve the ISA funding plan with the adviser before the disposal or reinvestment"
+)
+
+
+def _check_isa_disposal_plans(facts: CaseFacts, accounts: dict[str, Account]) -> None:
+    """Hold ISA-only full-disposal plans for clarification, without changing the advice."""
+    active = [a for a in facts.actions if a.status in {"agreed", "conditional"}]
+    for sale in active:
+        source = accounts.get(sale.source_account_id or "")
+        if (
+            sale.kind != "dispose"
+            or sale.extent != "full"
+            or source is None
+            or not re.search(
+                r"\b(?:GIA|general investment account)\b", source.account_type, re.I
+            )
+        ):
+            continue
+        allocations = [
+            a
+            for a in active
+            if a.kind in {"contribute", "transfer"}
+            and (
+                a.source_account_id == sale.source_account_id
+                or any(
+                    receipt.receipt_id in a.source_funding_ids
+                    and receipt.source_account_id == sale.source_account_id
+                    for receipt in facts.receipts
+                )
+            )
+        ]
+        target_ids = list(
+            dict.fromkeys(
+                [
+                    *sale.destination_account_ids,
+                    *(key for a in allocations for key in a.destination_account_ids),
+                ]
+            )
+        )
+        if not target_ids or any(
+            key not in accounts
+            or not re.search(r"\b(?:ISA|JISA|LISA)\b", accounts[key].account_type, re.I)
+            for key in target_ids
+        ):
+            continue
+        targets = [accounts[key] for key in target_ids]
+        owners = {
+            owner.strip().casefold()
+            for a in targets
+            for owner in a.owners
+            if owner.strip()
+        }
+        timing = " ".join(a.timing or "" for a in [sale, *allocations])
+        stated_years = re.findall(r"20\d{2}[/-](?:20)?\d{2}", timing)
+        unsupported_timing = bool(
+            re.search(r"\b(?:next|following)\s+(?:tax\s+)?year\b", timing, re.I)
+            # Numeric dates have not been resolved by the source-date parser.
+            or re.search(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b", timing)
+            or any(year.replace("-", "/") != facts.tax_year for year in stated_years)
+            or any(
+                str(day.year - (day < date(day.year, 4, 6)))
+                != (facts.tax_year or "")[:4]
+                for day in _dates(timing)
+            )
+        )
+        special_wrapper = any(
+            re.search(
+                r"\b(?:junior|lifetime|JISA|LISA|help\W+to\W+buy)\b",
+                a.account_type,
+                re.I,
+            )
+            for a in targets
+        )
+        limit = (
+            ISA_ANNUAL_LIMITS.get(facts.tax_year or "")
+            if not unsupported_timing and not special_wrapper
+            else None
+        )
+        supported_ownership = all(
+            len(a.owners) == 1 and a.owners[0].strip() for a in targets
+        )
+        value = sale.amount or source.valuation
+        if limit is not None and supported_ownership and owners:
+            capacity = limit * len(owners)
+            ceiling = f"GBP {capacity:,.0f} maximum combined annual ISA subscription allowance for {facts.tax_year}"
+            if (
+                value
+                and value.currency == "GBP"
+                and value.precision in {"exact", "lower_bound"}
+                and value.value > capacity
+            ):
+                observation = (
+                    "The recorded disposal amount"
+                    if sale.amount
+                    else "The latest holding valuation"
+                )
+                message = f"{observation} exceeds the {ceiling}."
+            else:
+                message = (
+                    f"Confirm whether the disposal proceeds fit within the {ceiling}."
+                )
+        else:
+            message = "Confirm the relevant tax year, applicable ISA subscription limits and each recipient's allowance."
+        message += (
+            " Existing subscriptions reduce the remaining allowance; a valuation is not guaranteed sale proceeds."
+            " Confirm remaining allowances and exact proceeds, then obtain the adviser's decision on a revised sale amount or the treatment of surplus proceeds."
+            " Do not implement the disposal or reinvestment until this is resolved."
+        )
+        _review(
+            facts, "isa_funding_conflict", message, [source.account_id, *target_ids]
+        )
+        for action in [sale, *allocations]:
+            action.status = "conditional"
+            if ISA_DISPOSAL_HOLD not in action.conditions:
+                action.conditions.append(ISA_DISPOSAL_HOLD)
 
 
 def _check_allocations(
@@ -937,8 +1055,9 @@ def reconcile(
     receipt_map = {receipt.receipt_id: receipt for receipt in result.receipts}
     if len(receipt_map) != len(result.receipts):
         return _failure("duplicate_receipt", "Receipt identities must be unique.")
-    commitment_map = {item.commitment_id: item for item in result.commitments}
-    if len(commitment_map) != len(result.commitments):
+    if len({item.commitment_id for item in result.commitments}) != len(
+        result.commitments
+    ):
         return _failure("duplicate_commitment", "Commitment identities must be unique.")
     for events, identity in [
         (result.receipts, "receipt_id"),
@@ -1035,8 +1154,12 @@ def reconcile(
         isa_targets = [
             identifier
             for identifier in action.destination_account_ids
-            if identifier in account_map
-            and "isa" in account_map[identifier].account_type.casefold()
+            if identifier in destination_accounts
+            and re.search(
+                r"\b(?:ISA|JISA|LISA)\b",
+                destination_accounts[identifier].account_type,
+                re.I,
+            )
         ]
         pension_targets = [
             identifier
@@ -1063,19 +1186,32 @@ def reconcile(
             if condition not in action.conditions:
                 action.conditions.append(condition)
             pension_actions.append(action)
-        if isa_targets and any(
-            block.role == "evidence"
-            and re.search(r"\bISAs?\b.{0,60}\bpart.funded\b", block.text, re.I)
-            and re.search(r"\bremaining allowance\b", block.text, re.I)
-            for block in bundle.blocks
+        if (
+            isa_targets
+            and action.kind in {"contribute", "transfer", "dispose"}
+            and action.status in {"agreed", "conditional"}
+            and not (
+                action.kind == "transfer"
+                and source
+                and re.search(r"\b(?:ISA|JISA|LISA)\b", source.account_type, re.I)
+                and not action.source_funding_ids
+                and not any(
+                    re.search(
+                        r"\b(?:lifetime|junior|JISA|LISA|help\W+to\W+buy)\b",
+                        destination_accounts[key].account_type,
+                        re.I,
+                    )
+                    for key in isa_targets
+                )
+            )
         ):
             _review(
                 result,
                 "isa_capacity",
-                "Confirm existing subscriptions, remaining ISA capacity and treatment of excess proceeds before implementation.",
+                "Confirm existing subscriptions and each recipient's remaining ISA allowance for the relevant tax year before implementation.",
                 isa_targets,
             )
-            condition = "ISA top-ups are subject to each account's remaining allowance"
+            condition = "ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year"
             if condition not in action.conditions:
                 action.conditions.append(condition)
         if set(action.source_funding_ids) - receipt_map.keys():
@@ -1187,4 +1323,5 @@ def reconcile(
                 "ambiguous_date",
                 "Confirm the source date for the relative tax-year instruction.",
             )
+    _check_isa_disposal_plans(result, destination_accounts)
     return Ok(result)

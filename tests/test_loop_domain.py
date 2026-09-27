@@ -87,7 +87,11 @@ def test_already_funded_isa_requires_remaining_capacity_and_excess_review():
     review = next(
         item for item in result.value.review_items if item.code == "isa_capacity"
     )
-    assert "remaining" in review.message.lower() and "excess" in review.message.lower()
+    assert "remaining" in review.message.lower()
+    assert any(
+        item.code == "isa_funding_conflict" and "surplus" in item.message.lower()
+        for item in result.value.review_items
+    )
 
 
 def test_pooled_account_proceeds_and_external_receipt_can_fund_one_allocation():

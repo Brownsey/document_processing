@@ -1,12 +1,11 @@
 """Command-line composition for the shared, source-backed report workflow."""
 
 import argparse
-import os
-from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from agent_pipeline.cli import add_runtime_arguments, provider_options, workflow_options
 from agent_pipeline.contracts import Err
 from agent_pipeline.providers import create_provider
 from agent_pipeline.workflow import run_generation
@@ -30,19 +29,9 @@ def main(argv: list[str] | None = None) -> int:
         "--config", type=Path, default=Path("config/template_config.json")
     )
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
-    parser.add_argument(
-        "--provider", default="openai", choices=["openai", "openrouter"]
-    )
-    parser.add_argument("--model", default=None)
-    parser.add_argument("--base-url", default=None)
+    add_runtime_arguments(parser)
     parser.add_argument("--cache-dir", type=Path, default=None)
-    parser.add_argument("--cap-usd", type=Decimal, default=Decimal("10"))
-    parser.add_argument(
-        "--ledger", type=Path, default=Path(".local/paid-budget.sqlite3")
-    )
     args = parser.parse_args(argv)
-    if args.provider == "openrouter" and not args.model:
-        parser.error("--provider openrouter requires an explicit --model")
     if (
         Path(args.client).name != args.client
         or args.client in {".", ".."}
@@ -52,12 +41,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--client must name one folder under --data-dir")
     load_dotenv()
     selected = create_provider(
-        provider=args.provider,
-        model=args.model or os.getenv("OPENAI_MODEL", "gpt-6-luna"),
-        base_url=args.base_url,
+        **provider_options(args, parser),
         cache_dir=args.cache_dir,
-        cap_usd=args.cap_usd if args.provider == "openai" else None,
-        ledger_path=args.ledger,
     )
     provider = (
         _UnavailableProvider(selected.error)
@@ -69,12 +54,17 @@ def main(argv: list[str] | None = None) -> int:
         config_path=args.config,
         output_dir=args.output_dir,
         provider=provider,
-        cache_dir=args.cache_dir,
+        **workflow_options(args),
     )
     if isinstance(result, Err):
         print(f"{result.error.stage}: {result.error.code} — {result.error.message}")
         return 1
-    print(f"Draft needs adviser review: {result.value['output_path']}")
+    if result.value.get("published_anyway"):
+        print(
+            f"WARNING: failed source review; manual correction required: {result.value['output_path']}"
+        )
+    else:
+        print(f"Draft needs adviser review: {result.value['output_path']}")
     return 0
 
 

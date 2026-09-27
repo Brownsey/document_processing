@@ -345,3 +345,18 @@ def test_only_complete_stable_image_reply_is_approved_for_cache(
     result = load_sources(tmp_path, reader)
     assert isinstance(result, Ok) is approved
     assert bool(reader.approved) is approved
+
+
+def test_open_word_document_owner_file_is_not_client_evidence(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Recorded recommendation and reason.")
+    doc.save(tmp_path / "report_request.docx")
+    reader = ImageReader()
+    before = load_sources(tmp_path, reader)
+    assert isinstance(before, Ok)
+    (tmp_path / "~$port_request.docx").write_bytes(b"Word owner metadata")
+    after = load_sources(tmp_path, reader)
+    assert isinstance(after, Ok)
+    assert after.value == before.value
+    assert not reader.calls
+    assert (tmp_path / "~$port_request.docx").exists()

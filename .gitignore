@@ -17,3 +17,4 @@ mlartifacts/
 htmlcov/
 /docs/
 /outputs/*.manifest.json
+/outputs/*_repair_*.md

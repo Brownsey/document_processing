@@ -12,6 +12,12 @@ A production system would want to run the MLFLOW approach or another automated v
 
 The architecture runs the hexagonal port/domain flow for it's fail-fast and ease of switching out endpoints if we think about openai/bedrock/openrouter.
 
+Adding reasoning-effort as a cli arg, for the cost, running luna medium is better than luna-low. So setting that as a default (costs are still extremely low so this is worth the cost increase in my opinion - as on the testing it resolved a few cases which failed the validation layer on low)
+
+The initial loops, returned usable outputs. However, they followed the requirements a bit too strongly and did not pick up on any issues that may arise from the intended approach of the adviser. This may be strict requirements, but in my opinion it is more useful if the output can flag these for the adviser to review. Simple example is the client 2 sell all of the 45k holdings to top up the ISA allowance of both (but they have already used some of their combined 40k allowance) - what happens to the remaining cash. Currently unsure.
+
+So I added the adviser queries aspect - this is currently forced but could also be pinged to a cli arg as it may be something that some advisers don't like - I will implement this but in reality it would probably be an FDE business case discussion to decide whether this is required. This could arguably be made shorter to just include things that look incorrect, but also flagging things like Jeans cash ISA feels useful to me? I've added a CLI mode for this to be either full or discrepency to handle what would be displayed in this area. But for the purpose of this I'm just going to using and testing full
+
 # Initial thoughts braindump
 
  - Ensure the output structure is no longer broken and matches the requirements

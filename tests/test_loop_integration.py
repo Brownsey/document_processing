@@ -20,7 +20,7 @@ def test_background_selector_excludes_recommendation_and_exclusion_facts():
     assert "accounts" not in selected
 
 
-def test_recommendations_selector_keeps_client_reasons_but_drops_unrelated_exclusions():
+def test_recommendations_selector_drops_charge_questions_and_unrelated_exclusions():
     charge_question = {
         "category": "sensitivity",
         "text": "The client asked about platform charges",
@@ -34,11 +34,11 @@ def test_recommendations_selector_keeps_client_reasons_but_drops_unrelated_exclu
 
     selected = select_facts("recommendations", facts)
 
-    assert selected["narratives"] == [charge_question]
+    assert selected["narratives"] == []
     assert selected["actions"] == facts["actions"]
 
 
-def test_rationale_projects_only_reasons_and_charge_concerns():
+def test_rationale_projects_reasons_and_account_types_without_charge_questions():
     facts = {
         "narratives": [
             {"category": "objective", "text": "Future income"},
@@ -62,11 +62,15 @@ def test_rationale_projects_only_reasons_and_charge_concerns():
     }
     selected = select_facts("rationale", facts)
     assert selected["actions"] == [
-        {"kind": "contribute", "rationale": "Use ISA allowances"}
+        {
+            "kind": "contribute",
+            "rationale": "Use ISA allowances",
+            "source_account_type": "",
+            "destination_account_types": [],
+        }
     ]
     assert [n["text"] for n in selected["narratives"]] == [
         "Future income",
-        "Jo asked about ongoing charges",
     ]
     assert not {"review_items", "receipts", "accounts", "conflicts"} & selected.keys()
     assert "12345" not in str(selected) and "500000" not in str(selected)

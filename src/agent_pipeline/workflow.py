@@ -5,7 +5,9 @@ import json
 import os
 import re
 import time
+from contextlib import suppress
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -38,7 +40,16 @@ SELECTORS = {
     "fees",
     "all",
 }
-RENDERERS = {"scope", "holdings", "actions", "tax", "fees", "risk_warning"}
+RENDERERS = {
+    "scope",
+    "holdings",
+    "actions",
+    "action_plan",
+    "adviser_queries",
+    "tax",
+    "fees",
+    "risk_warning",
+}
 
 
 def validate_config(config: dict) -> Result[dict, PipelineError]:
@@ -50,6 +61,7 @@ def validate_config(config: dict) -> Result[dict, PipelineError]:
 
     try:
         require(isinstance(config, dict))
+        require(config.get("adviser_confirmations", "full") in {"full", "discrepancy"})
         require(
             isinstance(config.get("document_title"), str)
             and config["document_title"].strip()
@@ -135,9 +147,9 @@ class SupportReview(BaseModel):
     model_config = ConfigDict(extra="forbid")
     supported: bool
     issues: list[str]
-    issue_kind: Literal["none", "facts", "narrative"] = Field(
+    issue_kind: Literal["none", "facts", "narrative", "code"] = Field(
         default="none",
-        description="Use facts when extracted facts are unsupported (including mixed failures); narrative when facts are sound but prose is not; none only when supported.",
+        description="Use code for a fixed template or deterministic rendering defect that re-extraction cannot fix; facts for extraction errors; narrative for generated prose only; none only when supported. Code takes precedence in mixed failures.",
     )
 
 
@@ -261,22 +273,30 @@ def select_facts(selector: str, facts: dict) -> dict:
             ],
         }
     if selector == "rationale":
+        account_types = {
+            account["account_id"]: account.get("account_type", "")
+            for account in facts.get("accounts", []) + facts.get("planned_accounts", [])
+        }
         return {
             "recipient_names": recipient_names,
             "narratives": [
                 narrative(item)
                 for item in facts.get("narratives", [])
-                if item.get("category") in {"objective", "rationale", "charges_concern"}
-                or (
-                    item.get("category") == "sensitivity"
-                    and re.search(
-                        r"\b(?:charges?|costs?)\b", item.get("text", ""), re.I
-                    )
-                )
+                if item.get("category") in {"objective", "rationale"}
             ],
             "actions": [
                 {
                     **({"kind": action["kind"]} if "kind" in action else {}),
+                    "source_account_type": account_types.get(
+                        action.get("source_account_id"), ""
+                    ),
+                    "destination_account_types": list(
+                        dict.fromkeys(
+                            account_types[key]
+                            for key in action.get("destination_account_ids", [])
+                            if account_types.get(key)
+                        )
+                    ),
                     "rationale": narrative(
                         {"category": "rationale", "text": action["rationale"]}
                     )["text"],
@@ -296,7 +316,6 @@ def select_facts(selector: str, facts: dict) -> dict:
             "planned_accounts",
             "scope_refs",
         ),
-        "background": ("narratives",),
         "recommendations": (
             "actions",
             "accounts",
@@ -315,7 +334,13 @@ def select_facts(selector: str, facts: dict) -> dict:
     selected = common | {k: facts.get(k, []) for k in fields[selector]}
     if selector == "recommendations":
         selected["narratives"] = [
-            n for n in selected["narratives"] if n.get("category") != "exclusion"
+            n
+            for n in selected["narratives"]
+            if n.get("category") not in {"exclusion", "charges_concern"}
+            and not (
+                n.get("category") == "sensitivity"
+                and re.search(r"\b(?:charges?|costs?)\b", n.get("text", ""), re.I)
+            )
         ]
     return selected
 
@@ -529,6 +554,50 @@ def _investigate(facts, bundle: EvidenceBundle, port, config: dict, trace: list[
     return Ok(retrieved)
 
 
+def _record_repair(manifest: dict, kind: str, trigger: dict, rejected_text: str = ""):
+    manifest["repair_counts"][kind] += 1
+    instant = datetime.now(timezone.utc)
+    event = {
+        "kind": kind,
+        "attempt": manifest["repair_counts"][kind],
+        "timestamp": instant.isoformat(),
+        "trigger": trigger,
+    }
+    manifest["repair_history"].append(event)
+    details = {"client": manifest["client"], "run_id": manifest["run_id"], **event}
+    if kind == "facts":
+        details["facts"] = manifest["facts"]
+    content = (
+        "# Repair diagnostic — not an approved report\n\n"
+        "## Trigger\n\n```json\n"
+        + json.dumps(details, indent=2, ensure_ascii=False, default=str)
+        + "\n```\n"
+    )
+    if rejected_text:
+        content += "\n## Rejected content\n\n" + rejected_text + "\n"
+    reserved = False
+    try:
+        while True:
+            path = Path(manifest["output_path"]).with_name(
+                f"{manifest['client']}_repair_{instant:%Y%m%dT%H%M%S%fZ}.md"
+            )
+            try:
+                path.touch(exist_ok=False)
+                reserved = True
+                break
+            except FileExistsError:
+                instant += timedelta(microseconds=1)
+        _atomic(path, content)
+        event["diagnostic_path"] = str(path)
+    except OSError:
+        if reserved:
+            with suppress(OSError):
+                path.unlink()
+        manifest["diagnostics"].append(
+            {"code": "repair_diagnostic_write_failed", "path": str(path)}
+        )
+
+
 def _generate(config: dict, client_dir: Path, port, manifest: dict):
     from agent_pipeline.evidence import load_sources
 
@@ -538,20 +607,6 @@ def _generate(config: dict, client_dir: Path, port, manifest: dict):
     bundle = loaded.value
     manifest["sources"] = bundle.inventory
     manifest["fingerprints"]["inputs"] = _hash(bundle.inventory)
-    unresolved = [
-        s
-        for s in bundle.inventory
-        if s.get("status") == "unresolved" and s.get("material", True)
-    ]
-    if unresolved:
-        return Err(
-            ReportBlocked(
-                "unreadable_evidence",
-                "Material evidence could not be read completely.",
-                "evidence",
-                details={"sources": [s["source"] for s in unresolved]},
-            )
-        )
     context = _evidence_context(bundle) | {
         "fingerprints": manifest["fingerprints"],
         "client_scope": str(client_dir.resolve()),
@@ -562,6 +617,7 @@ def _generate(config: dict, client_dir: Path, port, manifest: dict):
     feedback = None
     # At most two repairs per category, all sharing the same run/time/call budget.
     for _ in range(5):
+        manifest.pop("_blocked_report", None)
         manifest["inclusion"] = []
         result = _draft(config, bundle, port, manifest, context, fixed_facts, feedback)
         feedback = manifest.pop("_repair_feedback", None)
@@ -578,14 +634,7 @@ def _generate(config: dict, client_dir: Path, port, manifest: dict):
                     "details": result.error.details,
                 }
             ]
-            manifest["repair_counts"]["facts"] += 1
-            manifest["repair_history"].append(
-                {
-                    "kind": "facts",
-                    "attempt": manifest["repair_counts"]["facts"],
-                    "error": result.error.code,
-                }
-            )
+            _record_repair(manifest, "facts", asdict(result.error))
             fixed_facts = None
             continue
         if not isinstance(result, Err) or result.error.code != "unsupported_report":
@@ -593,13 +642,8 @@ def _generate(config: dict, client_dir: Path, port, manifest: dict):
         kind = result.error.details.get("issue_kind")
         if kind not in {"facts", "narrative"} or manifest["repair_counts"][kind] >= 2:
             return result
-        manifest["repair_counts"][kind] += 1
-        manifest["repair_history"].append(
-            {
-                "kind": kind,
-                "attempt": manifest["repair_counts"][kind],
-                "issue_count": result.error.details["issue_count"],
-            }
+        _record_repair(
+            manifest, kind, asdict(result.error), manifest.get("_blocked_report", "")
         )
         fixed_facts = manifest["facts"] if kind == "narrative" else None
     return result
@@ -654,9 +698,11 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
                     return extracted
                 reconciled = reconcile(extracted.value, bundle)
                 if isinstance(reconciled, Err):
+                    manifest["facts"] = extracted.value.model_dump(mode="json")
                     return reconciled
                 facts = reconciled.value.model_dump(mode="json")
         if isinstance(reconciled, Err):
+            manifest["facts"] = facts
             return reconciled
     else:
         facts = fixed_facts
@@ -730,7 +776,28 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
             shape = _slot_shape(spec, name, section["template"])
             if "renderer" in spec:
                 text = render_slot(spec["renderer"], facts, config)
-                defects = validate_slot(text, shape, template=section["template"])
+                defects = (
+                    []
+                    if spec["renderer"] == "adviser_queries" and not text
+                    else validate_slot(
+                        text,
+                        shape,
+                        template=section["template"],
+                        literal_phrases=[
+                            value
+                            for account in facts.get("accounts", [])
+                            + facts.get("planned_accounts", [])
+                            for value in [
+                                account.get("platform", ""),
+                                account.get("account_type", ""),
+                                account["account_id"],
+                                *account.get("owners", []),
+                            ]
+                        ]
+                        if spec["renderer"] == "scope"
+                        else (),
+                    )
+                )
                 if defects:
                     return Err(
                         ReportBlocked(
@@ -776,7 +843,12 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
                         break
                     if manifest["repair_counts"]["narrative"] >= 2:
                         break
-                    manifest["repair_counts"]["narrative"] += 1
+                    _record_repair(
+                        manifest,
+                        "narrative",
+                        {"stage": "write", "slot": name, "checks": defects},
+                        text,
+                    )
                     narrative_context["repair"] = {
                         "defects": defects,
                         "previous": text,
@@ -791,7 +863,7 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
                             details={"slot": name, "checks": defects},
                         )
                     )
-                narratives.append({"slot": name, "text": text, "facts": selected})
+                narratives.append({"slot": name, "text": text})
             content = content.replace(f"<<{name}>>", text)
         sections.append(
             {
@@ -828,24 +900,27 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
         context={
             **{key: value for key, value in context.items() if key != "repair"},
             "report_stage": "adviser_review_draft",
+            "adviser_confirmations": config.get("adviser_confirmations", "full"),
             "facts": _review_facts(facts),
-            "narratives": [{"slot": n["slot"], "text": n["text"]} for n in narratives],
+            "narratives": narratives,
             "report": report,
         },
     )
     if isinstance(reviewed, Err):
         return reviewed
-    if reviewed.value.supported and (
-        reviewed.value.issues or reviewed.value.issue_kind != "none"
-    ):
+    if (
+        reviewed.value.supported
+        and (reviewed.value.issues or reviewed.value.issue_kind != "none")
+    ) or (not reviewed.value.supported and reviewed.value.issue_kind == "none"):
         return Err(
             ExtractionError(
                 "invalid_response",
-                "Support review returned a contradictory success verdict.",
+                "Support review returned a contradictory verdict.",
                 "validate_support",
             )
         )
     if not reviewed.value.supported or reviewed.value.issues:
+        manifest["_blocked_report"] = report
         manifest["_repair_feedback"] = reviewed.value.issues
         return Err(
             ReportBlocked(
@@ -854,6 +929,7 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
                 "validate",
                 details={
                     "issue_count": len(reviewed.value.issues),
+                    "issues": reviewed.value.issues,
                     "issue_kind": reviewed.value.issue_kind,
                 },
             )
@@ -881,9 +957,13 @@ def run_generation(
     config_path: Path,
     output_dir: Path,
     provider: ModelPort,
-    cache_dir: Path | None = None,
+    run_timeout: float = 300,
+    max_calls: int = 40,
+    tone_of_voice: str | None = None,
+    adviser_confirmations: str | None = None,
+    publish_anyway: bool = False,
 ) -> Result[dict, PipelineError]:
-    """Write the success marker last; every failed rerun removes the old report."""
+    """Write diagnostics last; only an explicit override releases a rejected draft."""
     report_path = output_dir / f"{client_dir.name}.md"
     manifest_path = output_dir / f"{client_dir.name}.manifest.json"
     usage_start = len(_usage(provider))
@@ -891,6 +971,8 @@ def run_generation(
     manifest = {
         "run_id": uuid4().hex,
         "status": "running",
+        "publish_anyway": publish_anyway,
+        "published_anyway": False,
         "client": client_dir.name,
         "output_path": str(report_path.resolve()),
         "sources": [],
@@ -904,6 +986,7 @@ def run_generation(
         "inclusion": [],
         "model": settings.get("model", getattr(provider, "model", "unknown")),
         "settings": settings,
+        "execution_limits": {"timeout": run_timeout, "max_calls": max_calls},
     }
     result: Result[str, PipelineError] | None = None
     try:
@@ -911,10 +994,19 @@ def run_generation(
         report_path.unlink(missing_ok=True)
         _atomic(manifest_path, json.dumps(manifest, indent=2, default=str))
         loaded = load_config(config_path)
+        if not isinstance(loaded, Err) and tone_of_voice is not None:
+            loaded = validate_config(loaded.value | {"tone_of_voice": tone_of_voice})
+        if not isinstance(loaded, Err) and adviser_confirmations is not None:
+            loaded = validate_config(
+                loaded.value | {"adviser_confirmations": adviser_confirmations}
+            )
         if isinstance(loaded, Err):
             result = Err(loaded.error)
         else:
             config = loaded.value
+            manifest["adviser_confirmations"] = config.get(
+                "adviser_confirmations", "full"
+            )
             manifest["review_status"] = config.get("review_status", "unreviewed")
             manifest["fingerprints"] = {
                 "config": _hash(config),
@@ -940,9 +1032,15 @@ def run_generation(
             result = _generate(
                 config,
                 client_dir,
-                BudgetPort(provider, tone_of_voice=config.get("tone_of_voice", "")),
+                BudgetPort(
+                    provider,
+                    timeout=run_timeout,
+                    max_calls=max_calls,
+                    tone_of_voice=config.get("tone_of_voice", ""),
+                ),
                 manifest,
             )
+        blocked_report = manifest.pop("_blocked_report", None)
         if isinstance(result, Err):
             manifest["status"] = result.error.manifest_status
             manifest["error"] = {
@@ -952,9 +1050,32 @@ def run_generation(
                 "stage": result.error.stage,
                 "details": result.error.details,
             }
-        else:
+            if (
+                publish_anyway
+                and isinstance(result.error, ReportBlocked)
+                and result.error.code == "unsupported_report"
+                and blocked_report is not None
+            ):
+                issues = result.error.details.get("issues", [])
+                warning = (
+                    "> **MANUAL CORRECTION REQUIRED — source-support review failed.**\n"
+                    "> Published by explicit override after bounded repair attempts.\n"
+                    + "".join(
+                        "> " + line + "\n"
+                        for issue in issues
+                        for line in issue.splitlines()
+                    )
+                    + "\n"
+                )
+                result = Ok(warning + blocked_report)
+                manifest["published_anyway"] = True
+        if isinstance(result, Ok):
             _atomic(report_path, result.value)
-            manifest["status"] = "needs_review"
+            manifest["status"] = (
+                "published_with_issues"
+                if manifest["published_anyway"]
+                else "needs_review"
+            )
             manifest["fingerprints"]["report"] = _hash(result.value.encode())
     except KeyboardInterrupt:
         result = Err(
@@ -982,13 +1103,26 @@ def run_generation(
             "message": "Generation failed unexpectedly.",
         }
     finally:
+        manifest.pop("_blocked_report", None)
         manifest["usage"] = _usage(provider)[usage_start:]
         try:
-            if manifest["status"] != "needs_review":
+            if manifest["status"] not in {"needs_review", "published_with_issues"}:
                 report_path.unlink(missing_ok=True)
+        except OSError:
+            result = Err(
+                InputError(
+                    "output_write_failed",
+                    "Unable to remove the previous report; it must not be used for this run.",
+                    "output",
+                )
+            )
+            manifest["status"] = "failed"
+            manifest["error"] = asdict(result.error)
+        try:
             _atomic(manifest_path, json.dumps(manifest, indent=2, default=str))
         except OSError:
-            report_path.unlink(missing_ok=True)
+            with suppress(OSError):
+                report_path.unlink(missing_ok=True)
             result = Err(
                 InputError(
                     "output_write_failed",

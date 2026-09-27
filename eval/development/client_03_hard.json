@@ -8,7 +8,8 @@
       "16 May around 38,000 supersedes 10 March 30,000.",
       "Inheritance cleared, around 120,000; request round figure does not erase meeting qualification.",
       "Full GIA disposal plus inheritance funds both ISAs/new joint balance; no exact individual allocations supplied.",
-      "Jean cash status and balance unresolved; funding cannot assume it. New joint account is planned, not holding. Initial 0.5% basis unconfirmed."
+      "Jean cash status and balance unresolved; funding cannot assume it. New joint account is planned, not holding. Initial 0.5% basis unconfirmed.",
+      "The meeting instruction invests the remaining balance in the proposed joint account; opening and funding that account are separate required actions."
     ]
   },
   "accounts": [
@@ -87,6 +88,13 @@
       "destination": [
         "joint account",
         "joint investment account"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "joint investment account",
+        "new joint account"
       ]
     }
   ],

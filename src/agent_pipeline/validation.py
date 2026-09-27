@@ -11,7 +11,12 @@ SHAPES = {"phrase", "paragraph", "table", "static"}
 
 
 def validate_slot(
-    text: str, kind: str, *, template: str = "", selector: str = ""
+    text: str,
+    kind: str,
+    *,
+    template: str = "",
+    selector: str = "",
+    literal_phrases: list[str] | tuple[str, ...] = (),
 ) -> list[str]:
     """Return defects, never convert a generation defect to an adviser review item."""
     errors = []
@@ -25,8 +30,13 @@ def validate_slot(
         re.I,
     ):
         errors.append("insertion_instruction")
-    if kind == "phrase" and ("\n" in text or re.search(r"[.!?]\s|\.$", text)):
-        errors.append("not_phrase")
+    if kind == "phrase":
+        # Sourced account names may contain punctuation; raw structure still applies.
+        phrase = text
+        for literal in sorted(set(literal_phrases) - {""}, key=len, reverse=True):
+            phrase = phrase.replace(literal, "name")
+        if "\n" in text or re.search(r"[.!?]\s|\.$", phrase):
+            errors.append("not_phrase")
     if kind in {"phrase", "paragraph"} and re.search(r"(?m)^\s*\||^\s*[-*]\s", text):
         errors.append("unexpected_table_or_list")
     if kind == "paragraph" and "\n\n" in text:
@@ -58,7 +68,7 @@ def validate_assembly(config: dict, sections: list[dict], report: str) -> list[s
     errors = []
     if re.findall(r"(?m)^## .+$", report) != expected:
         errors.append("section_order_or_count")
-    if report.count("# ") != len(expected) + 1:
+    if len(re.findall(r"(?m)^\s{0,3}#{1,6}\s", report)) != len(expected) + 1:
         errors.append("unexpected_headings")
     for fixed in (FCA_LINE, config.get("risk_warning", RISK_WARNING)):
         locations = [s.get("id") for s in sections if fixed in s["content"]]

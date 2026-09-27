@@ -10,7 +10,8 @@
       "Separate partial Holloway sale/rebalance and Holloway contribution. No Brightwell GIA/SIPP/ISA/bond sale. Retain bond.",
       "Both ISA and SIPP contributions require allowances/sizing; new joint gets remaining balance. No invented allocations or exact fee basis.",
       "Three-year income replacement objective; unknown Caroline cash reviewed; closed account excluded. School fees/charity/France deferred.",
-      "The introductory scope may group the two individual ISAs and two SIPPs in the plural by platform, and name each joint wrapper by platform/type. Individual IDs and ownership remain required in holdings and extracted scope."
+      "The introductory scope may group the two individual ISAs and two SIPPs in the plural by platform, and name each joint wrapper by platform/type. Individual IDs and ownership remain required in holdings and extracted scope.",
+      "The meeting instruction invests the remaining balance in the proposed joint account; opening and funding that account are separate required actions."
     ]
   },
   "accounts": [
@@ -146,6 +147,7 @@
     {
       "kind": "contribute",
       "destination": [
+        "H4-ISA-J",
         "ISAs",
         "both ISA"
       ]
@@ -153,8 +155,27 @@
     {
       "kind": "contribute",
       "destination": [
+        "H4-ISA-C",
+        "ISAs",
+        "both ISA"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "B4-SIPP-J",
         "SIPPs",
-        "both SIPP"
+        "both SIPP",
+        "each SIPP"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "B4-SIPP-C",
+        "SIPPs",
+        "both SIPP",
+        "each SIPP"
       ]
     },
     {
@@ -178,6 +199,13 @@
         "M4-BOND-J",
         "offshore bond",
         "offshore investment bond"
+      ]
+    },
+    {
+      "kind": "contribute",
+      "destination": [
+        "joint investment account",
+        "new joint account"
       ]
     }
   ],
