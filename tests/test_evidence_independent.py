@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from agent_pipeline import evidence
+from agent_pipeline.adapters import evidence
 from agent_pipeline.contracts import Err, ModelReply, Ok
 
 
@@ -111,6 +111,7 @@ def test_docx_comment_evidence_is_preserved_or_reported_unresolved(tmp_path):
     [
         ("unsupported", "unsupported_file_type"),
         ("empty_text", "empty_source"),
+        ("zero_byte_text", "empty_source"),
         ("empty_docx", "empty_source"),
         ("embedded", "unsupported_embedded_content"),
     ],
@@ -125,9 +126,9 @@ def test_material_local_failures_block_image_calls_with_safe_inventory(
     if kind == "unsupported":
         source = tmp_path / "z-material.pdf"
         source.write_bytes(b"%PDF " + private_text.encode())
-    elif kind == "empty_text":
+    elif kind in {"empty_text", "zero_byte_text"}:
         source = tmp_path / "z-empty.txt"
-        source.write_text(" \n\t", encoding="utf-8")
+        source.write_text(" \n\t" if kind == "empty_text" else "", encoding="utf-8")
     else:
         source = tmp_path / "z-material.docx"
         document = Document()
@@ -138,6 +139,7 @@ def test_material_local_failures_block_image_calls_with_safe_inventory(
 
     result = evidence.load_sources(tmp_path, NoCalls())
     assert isinstance(result, Err)
+    assert result.error.code == "unreadable_evidence"
     assert result.error.stage == "evidence"
     assert private_text not in str(result.error)
     inventory = result.error.details["inventory"]

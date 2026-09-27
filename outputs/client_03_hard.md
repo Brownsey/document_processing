@@ -8,7 +8,7 @@ This firm is authorised and regulated by the Financial Conduct Authority.
 
 ## Background & Objectives
 
-Following her mother’s death earlier this spring, Jean received an inheritance. You both seek long-term growth and do not expect to need income from the portfolio for the foreseeable future; you both remain comfortable with a moderate risk level (risk profile 4).
+Jean received an inheritance following her mother’s death earlier this spring. You both seek long-term growth, do not need income from the portfolio for the foreseeable future and remain comfortable with a moderate risk level (risk profile 4).
 
 The accounts covered by this report are as follows:
 
@@ -27,18 +27,16 @@ Funds received: Inheritance received by Jean from her late mother's estate: arou
 
 - Sell the entire holding in Holloway General Investment Account (H-GIA-JF).
 - Open a joint investment account for Robert Fletcher and Jean Fletcher.
-- Combine the proceeds from Holloway General Investment Account (H-GIA-JF) with Inheritance received by Jean from her late mother's estate. Allocate the combined funds to Holloway Stocks & Shares ISA (H-ISA-R) and Holloway Stocks & Shares ISA (H-ISA-JE) and the proposed joint investment account for Robert Fletcher and Jean Fletcher. Fund both individual ISAs for the new tax year, then allocate the balance to the new jointly-held investment account. Timing: For the new tax year; allocate the balance after funding both ISAs. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
+- Combine the proceeds from Holloway General Investment Account (H-GIA-JF) with Inheritance received by Jean from her late mother's estate. Allocate the combined funds to Holloway Stocks & Shares ISA (H-ISA-R) and Holloway Stocks & Shares ISA (H-ISA-JE) and the proposed joint investment account for Robert Fletcher and Jean Fletcher. Fund both Robert's and Jean's ISAs for the new tax year, then invest the balance in a new jointly-held investment account. Timing: For the new tax year. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
 
-The recommended approach is intended to put the inheritance to work alongside your existing portfolio and support your long-term growth objective.
+This approach is intended to put the inheritance to work alongside your existing portfolio in support of your shared aim of long-term growth, as you both do not need portfolio income for the foreseeable future.
 
 
 **Adviser confirmations:**
 
-[REVIEW REQUIRED: Please clarify why a new joint investment account is needed rather than reusing the existing joint account, including relevant costs and tax considerations (Holloway General Investment Account (H-GIA-JF) and the proposed joint investment account for Robert Fletcher and Jean Fletcher).]
+[REVIEW REQUIRED: Confirm whether Jean's recorded cash account is active and establish its balance before finalising (Holloway Cash Account (H-CASH-JE)).]
 
-[REVIEW REQUIRED: Please confirm whether this cash account is still active and its current balance (Holloway Cash Account (H-CASH-JE)).]
-
-[REVIEW REQUIRED: Confirm the outstanding account balance before finalising (Holloway Cash Account (H-CASH-JE)).]
+[REVIEW REQUIRED: Explain why a new joint account is needed rather than reusing the existing account, including relevant costs and tax considerations (Holloway General Investment Account (H-GIA-JF) and the proposed joint investment account for Robert Fletcher and Jean Fletcher).]
 
 [REVIEW REQUIRED: Confirm the exact received amount before allocating funds.]
 

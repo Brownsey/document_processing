@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from test_workflow import CaseProvider, configured_case
+from support.workflow import CaseProvider, configured_case
 
 from agent_pipeline.contracts import Err, Ok
 from agent_pipeline.workflow import run_generation

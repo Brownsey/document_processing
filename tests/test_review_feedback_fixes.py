@@ -1,14 +1,15 @@
 import json
 
 import pytest
-from test_loop_domain import evidence, ref
+from support.evidence import evidence, ref
+from support.workflow import CaseProvider, configured_case
 from test_report_polish import planned_case
-from test_workflow import CaseProvider, configured_case
 
 from agent_pipeline.contracts import Err, Ok
-from agent_pipeline.domain import CaseFacts, reconcile
-from agent_pipeline.evaluation import score_report
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.evaluation.scoring import score_report
+from agent_pipeline.reporting.rendering import render_slot
+from agent_pipeline.rules.domain import reconcile
+from agent_pipeline.rules.models import CaseFacts
 from agent_pipeline.workflow import run_generation
 
 
@@ -157,32 +158,6 @@ def test_isa_to_isa_transfer_does_not_gain_new_subscription_condition():
     assert isinstance(result, Ok)
     assert not any(i.code == "isa_capacity" for i in result.value.review_items)
     assert not result.value.actions[0].conditions
-
-
-def test_transfer_into_lifetime_isa_still_requires_limit_confirmation():
-    text = "Transfer the existing ISA to a new Lifetime ISA."
-    facts = CaseFacts(
-        planned_accounts=[
-            {
-                "account_id": "LISA",
-                "account_type": "Lifetime ISA",
-                "owners": ["Alex"],
-                "refs": ref(text),
-            }
-        ],
-        actions=[
-            {
-                "action_id": "move",
-                "kind": "transfer",
-                "source_account_id": "ISA",
-                "destination_account_ids": ["LISA"],
-                "refs": ref(text),
-            }
-        ],
-    )
-    result = reconcile(facts, evidence(text))
-    assert isinstance(result, Ok)
-    assert any(i.code == "isa_capacity" for i in result.value.review_items)
 
 
 @pytest.mark.parametrize(

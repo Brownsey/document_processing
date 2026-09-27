@@ -88,7 +88,7 @@ Generation and evaluation share these runtime flags:
 | `--config`, `--data-dir`, `--output-dir` | Select the prompt configuration, inputs and destination |
 
 There is no local monetary budget or spend ledger. Provider account limits control spending;
-usage and estimated or unknown costs are recorded for inspection. Optional generation-only
+token usage, call outcomes and timing are recorded for inspection. Optional generation-only
 `--cache-dir .cache` reuses accepted extraction/image results. Evaluation uses fresh calls.
 Flex is outside V1. Use either command's `--help` for its full argument list.
 
@@ -133,8 +133,9 @@ This implementation pause permits an adviser-review draft; it does not require `
 
 The saved OpenRouter drafts in `outputs/` used `openai/gpt-6-luna` at `medium` reasoning,
 without a publication override, and passed source review when generated. Rescoring them on
-27 September 2026 passes 301 of 303 development checks: client 1 passes 34/34, client 2
-64/64, client 3 70/70 and client 4 133/135. All four final runs required no repairs.
+27 September 2026 passes 299 of 301 development checks: client 1 passes 34/34, client 2
+64/64, client 3 70/70 and client 4 131/133. Clients 1–3 required no repairs; client 4
+completed one automatic fact repair before passing source review.
 Client 4 has two directive-matching failures: the scorer treats continuation sentences
 inside named SIPP contribution bullets as separate instructions without account context.
 These remain evaluation failures; this is not an all-pass development result.
@@ -155,28 +156,47 @@ uv run --locked python -m agent_pipeline.evaluation --provider openrouter --mode
 # --output-dir outputs/evaluations keeps evaluation artifacts under outputs instead.
 
 # Compare both prompt versions on all four clients, using Luna for both.
-uv run --locked --extra experiment python -m agent_pipeline.evaluation --mode compare --baseline-config config/template_config.json --config config/template_config.candidate.json --mlflow
+uv run --locked python -m agent_pipeline.evaluation --provider openrouter --model openai/gpt-6-luna --mode compare --baseline-config config/template_config.json --config config/template_config.candidate.json
 
 # Generate a candidate draft explicitly.
 uv run --locked python -m agent_pipeline.generate --client client_01_clean --config config/template_config.candidate.json
 ```
 
-Comparisons and local MLflow stores stay under ignored `.local/`. Source-reviewed expectations
+Comparisons stay under ignored `.local/`. Source-reviewed expectations
 live in `eval/development/`; separate synthetic families are reserved for later checks. They
-are never passed to generation. Registering prompts does not approve them or start tuning:
+are never passed to generation. Prompt changes are made manually in configuration and
+evaluated against the baseline; there is no automatic optimisation or promotion.
 
-```bash
-uv run --locked --extra experiment python -m agent_pipeline.experiments --mode register --config config/template_config.candidate.json
+## Reading the pipeline
+
+Start with `src/agent_pipeline/workflow.py`: it coordinates extraction, drafting,
+bounded repairs and publication. The package is grouped by responsibility:
+
+```text
+agent_pipeline/
+    workflow.py           # Run controller
+    generate.py, cli.py   # Commands and options
+    contracts.py          # Shared types, errors and RunState
+    pipeline/             # Prompt inputs, extraction, drafting and validation
+    rules/domain.py       # Financial facts and reconciliation
+    adapters/             # Source reading and provider access
+    reporting/            # Fixed wording, file writes and repair diagnostics
+    evaluation/           # Independent scoring and evaluation commands
 ```
 
-Automatic improvement requires your review of the actual drafts, results and exact registered
-prompt versions.
+`RunState` carries the validated facts, repair feedback and blocked draft between
+stages. Its `snapshot()` includes the facts and run metadata in the existing saved
+manifest format; temporary feedback and the blocked draft stay in memory. Facts
+retain their validated dictionary representation for the existing selectors and renderers.
+
+Editable prompts remain in `config/template_config.json`. Initial attempts and
+repairs share the same prompt-call and diagnostic helpers. Both CLI module names
+remain unchanged: `agent_pipeline.generate` and `agent_pipeline.evaluation`.
 
 ## Verification
 
 ```bash
-uv run --locked --extra dev --extra experiment python scripts/verify.py
+uv run --locked --extra dev python scripts/verify.py
 ```
 
-This runs lint, formatting, types and offline tests, including local MLflow integration. It
-does not make live API calls. Normal generation does not require MLflow.
+This runs lint, formatting, types and offline tests. It does not make live API calls.

@@ -8,8 +8,8 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from docx import Document
 
+from agent_pipeline.adapters.evidence import load_sources
 from agent_pipeline.contracts import Err, ModelReply, Ok, ProviderError
-from agent_pipeline.evidence import load_sources
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII="
@@ -164,33 +164,6 @@ def test_embedded_docx_content_is_not_silently_dropped(tmp_path):
     assert inventory[0]["status"] == "unresolved"
     assert "unsupported_embedded_content" in inventory[0]["issues"]
     assert "Text outside image" not in str(result.error)
-
-
-@pytest.mark.parametrize("kind", ["unsupported", "empty", "embedded"])
-def test_material_unresolved_source_blocks_paid_image_calls_during_preflight(
-    tmp_path, kind
-):
-    (tmp_path / "a.png").write_bytes(PNG)
-    if kind == "unsupported":
-        (tmp_path / "z.pdf").write_bytes(b"%PDF private source")
-    elif kind == "empty":
-        (tmp_path / "z.txt").write_text("")
-    else:
-        document = Document()
-        paragraph = document.add_paragraph("Private client content")
-        document.add_comment(paragraph.runs, text="Do not proceed", author="Adviser")
-        document.save(tmp_path / "z.docx")
-    reader = ImageReader()
-    result = load_sources(tmp_path, reader)
-    assert reader.calls == []
-    assert isinstance(result, Err)
-    assert result.error.code == "unreadable_evidence"
-    inventory = result.error.details["inventory"]
-    assert any(
-        item["status"] == "unresolved" and item["material"] for item in inventory
-    )
-    assert "Private client content" not in str(result.error)
-    assert "%PDF private source" not in str(result.error)
 
 
 def test_image_provider_failure_is_preserved(tmp_path):

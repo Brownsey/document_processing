@@ -5,9 +5,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from agent_pipeline.adapters.providers import create_provider
 from agent_pipeline.cli import add_runtime_arguments, provider_options, workflow_options
 from agent_pipeline.contracts import Err
-from agent_pipeline.providers import create_provider
 from agent_pipeline.workflow import run_generation
 
 

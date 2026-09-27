@@ -4,7 +4,56 @@ import httpx
 import pytest
 from openai import OpenAI
 
-from agent_pipeline import evaluation, generate, providers
+from agent_pipeline import generate
+from agent_pipeline.adapters import providers
+from agent_pipeline.evaluation import runner as evaluation
+
+
+def test_evaluation_rejects_removed_mlflow_option_before_provider_setup(monkeypatch):
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
+
+    def forbidden(**kwargs):
+        pytest.fail("Removed option reached provider setup")
+
+    monkeypatch.setattr(providers, "create_provider", forbidden)
+    with pytest.raises(SystemExit) as error:
+        evaluation.main(["--mlflow"])
+    assert error.value.code == 2
+
+
+def test_compare_keeps_both_configs_and_reports_failed_candidate(monkeypatch, tmp_path):
+    from agent_pipeline.contracts import Ok
+
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
+    monkeypatch.setattr(providers, "create_provider", lambda **kwargs: Ok(object()))
+    configs = []
+
+    def evaluate(**kwargs):
+        configs.append(kwargs["config_path"].name)
+        return {"passed": kwargs["config_path"].name == "baseline.json", "usage": []}
+
+    monkeypatch.setattr(evaluation, "evaluate_case", evaluate)
+    assert (
+        evaluation.main(
+            [
+                "--mode",
+                "compare",
+                "--baseline-config",
+                "baseline.json",
+                "--config",
+                "candidate.json",
+                "--clients",
+                "sample",
+                "--output-dir",
+                str(tmp_path),
+            ]
+        )
+        == 1
+    )
+    summary = json.loads(next(tmp_path.glob("*/comparison.json")).read_text())
+    assert configs == ["baseline.json", "candidate.json"]
+    assert summary["variants"]["baseline"]["pass_rate"] == 1
+    assert summary["variants"]["candidate"]["pass_rate"] == 0
 
 
 @pytest.mark.parametrize("command", [generate, evaluation])

@@ -1,6 +1,10 @@
 """Local report contracts; model support review complements these hard checks."""
 
+import json
 import re
+from pathlib import Path
+
+from agent_pipeline.contracts import ConfigError, Err, Ok, PipelineError, Result
 
 FCA_LINE = "This firm is authorised and regulated by the Financial Conduct Authority."
 RISK_WARNING = (
@@ -92,3 +96,107 @@ def validate_assembly(config: dict, sections: list[dict], report: str) -> list[s
     if "<<" in report:
         errors.append("unfilled_slot")
     return errors
+
+
+SELECTORS = {
+    "introduction",
+    "background",
+    "recommendations",
+    "rationale",
+    "tax",
+    "fees",
+    "all",
+}
+RENDERERS = {
+    "scope",
+    "holdings",
+    "actions",
+    "action_plan",
+    "adviser_queries",
+    "tax",
+    "fees",
+    "risk_warning",
+}
+
+
+def validate_config(config: dict) -> Result[dict, PipelineError]:
+    """Resolve the entire template contract before any provider interaction."""
+
+    def require(condition):
+        if not condition:
+            raise ValueError("Invalid configuration")
+
+    try:
+        require(isinstance(config, dict))
+        require(config.get("adviser_confirmations", "full") in {"full", "discrepancy"})
+        require(
+            isinstance(config.get("document_title"), str)
+            and config["document_title"].strip()
+            and "\n" not in config["document_title"]
+        )
+        for key in (
+            "tone_of_voice",
+            "global_instructions",
+            "extraction_prompt",
+            "inclusion_prompt",
+            "investigation_prompt",
+            "validation_prompt",
+            "risk_warning",
+        ):
+            require(
+                key not in config
+                or isinstance(config[key], str)
+                and config[key].strip()
+            )
+        require(isinstance(config["sections"], list) and config["sections"])
+        identifiers = []
+        for section in config["sections"]:
+            require(isinstance(section, dict))
+            require(isinstance(section["id"], str) and section["id"].strip())
+            identifiers.append(section["id"])
+            require(isinstance(section["title"], str) and "\n" not in section["title"])
+            require(isinstance(section.get("use_if", "always"), str))
+            require(section.get("inclusion_selector") in {None, "taxable_disposals"})
+            template = section["template"]
+            slots = re.findall(r"<<([^<>]+)>>", template)
+            specs = section.get("placeholders", {})
+            require(isinstance(specs, dict))
+            require(len(slots) == len(set(slots)) and set(slots) == set(specs))
+            for spec in specs.values():
+                require(isinstance(spec, dict))
+                require(spec.get("output_type", "paragraph") in SHAPES)
+                require(spec.get("selector", "all") in SELECTORS)
+                if "renderer" in spec:
+                    require(spec["renderer"] in RENDERERS)
+                else:
+                    require(
+                        isinstance(spec.get("prompt"), str) and spec["prompt"].strip()
+                    )
+        require(len(identifiers) == len(set(identifiers)))
+    except (AssertionError, KeyError, TypeError, ValueError):
+        return Err(
+            ConfigError(
+                "invalid_config",
+                "Invalid section, slot, selector or renderer contract.",
+                "config",
+            )
+        )
+    return Ok(config)
+
+
+def load_config(path: Path, **overrides) -> Result[dict, PipelineError]:
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return Err(
+            ConfigError(
+                "invalid_config", "Configuration cannot be read as JSON.", "config"
+            )
+        )
+    loaded = validate_config(config)
+    for name, value in overrides.items():
+        if isinstance(loaded, Err):
+            return loaded
+        if value is not None:
+            loaded = validate_config(loaded.value | {name: value})
+    return loaded

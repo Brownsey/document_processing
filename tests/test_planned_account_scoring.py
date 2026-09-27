@@ -1,6 +1,6 @@
 import pytest
 
-from agent_pipeline.evaluation import score_report
+from agent_pipeline.evaluation.scoring import score_report
 
 
 @pytest.mark.parametrize(

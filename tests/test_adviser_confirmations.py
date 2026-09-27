@@ -2,13 +2,15 @@ import json
 from copy import deepcopy
 
 import pytest
-from test_workflow import CaseProvider, configured_case
+from support.workflow import QueryProvider, configured_case
 
-from agent_pipeline import evaluation, generate
-from agent_pipeline.contracts import Err, ModelReply, Ok
-from agent_pipeline.domain import ReviewItem
-from agent_pipeline.rendering import render_slot
-from agent_pipeline.workflow import run_generation, validate_config
+from agent_pipeline import generate
+from agent_pipeline.contracts import Err, Ok
+from agent_pipeline.evaluation import runner as evaluation
+from agent_pipeline.pipeline.validation import validate_config
+from agent_pipeline.reporting.rendering import render_slot
+from agent_pipeline.rules.models import ReviewItem
+from agent_pipeline.workflow import run_generation
 
 
 def review_facts():
@@ -99,23 +101,6 @@ def test_typed_review_category_keeps_old_facts_valid_and_rejects_unknown_values(
 def test_invalid_confirmation_mode_is_rejected():
     config = json.loads(open("config/template_config.json", encoding="utf-8").read())
     assert isinstance(validate_config(config | {"adviser_confirmations": "off"}), Err)
-
-
-class QueryProvider(CaseProvider):
-    def complete(self, **request):
-        result = super().complete(**request)
-        if request["task"] == "extract":
-            data = result.value.data
-            data["review_items"] = [
-                {"code": "missing", "message": "Confirm the missing rationale."},
-                {
-                    "code": "different",
-                    "message": "Reconcile differing instructions.",
-                    "category": "discrepancy",
-                },
-            ]
-            return Ok(ModelReply("", data, {}, "fake"))
-        return result
 
 
 @pytest.mark.parametrize("mode", ["full", "discrepancy"])

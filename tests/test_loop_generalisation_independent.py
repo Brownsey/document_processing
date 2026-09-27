@@ -5,9 +5,10 @@ import json
 import pytest
 
 from agent_pipeline.contracts import Err, EvidenceBlock, EvidenceBundle, Ok
-from agent_pipeline.domain import CaseFacts, reconcile
-from agent_pipeline.rendering import render_slot
-from agent_pipeline.workflow import select_facts
+from agent_pipeline.pipeline.prompt_inputs import select_facts
+from agent_pipeline.reporting.rendering import render_slot
+from agent_pipeline.rules.domain import reconcile
+from agent_pipeline.rules.models import CaseFacts
 
 
 def evidence_bundle(text: str) -> EvidenceBundle:

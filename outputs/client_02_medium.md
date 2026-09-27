@@ -8,7 +8,7 @@ This firm is authorised and regulated by the Financial Conduct Authority.
 
 ## Background & Objectives
 
-You are both retired, and your objectives and circumstances are unchanged since your last review. You do not currently need income from the portfolio and remain comfortable with a balanced approach to risk (risk profile 5).
+You both remain retired, and your objectives and circumstances are unchanged since the last review. You do not currently need income from the portfolio, and you both remain comfortable with a balanced approach to risk (risk profile 5).
 
 The accounts covered by this report are as follows:
 
@@ -29,9 +29,9 @@ The proposed plan is set out below:
 Recorded plan, subject to that clarification:
 
 - Sell the entire holding in Holloway General Investment Account (H-GIA-J).
-- Contribute an amount to be confirmed from Holloway General Investment Account (H-GIA-J) to Holloway Stocks & Shares ISAs (H-ISA-D and H-ISA-S). Split equally between David's and Susan's Stocks & Shares ISAs, using the remaining allowance across both. Timing: For the new tax year. Conditions: Both ISAs are already part-funded for the year; ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
+- Contribute an amount to be confirmed from Holloway General Investment Account (H-GIA-J) to Holloway Stocks & Shares ISAs (H-ISA-D and H-ISA-S). Split equally between the two ISAs. Timing: For the new tax year. Conditions: Both ISAs are already part-funded for the year; the top-up uses the remaining allowance across the two ISAs; ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
 
-The recommended approach is intended to simplify your investments and use the remaining ISA allowances for the new tax year.
+We recommend this approach because you both want to simplify your investment arrangements.
 
 ## Tax Implications
 
@@ -39,7 +39,7 @@ The proposed disposal may create a capital gains tax liability, assessed against
 
 ## Fees & Charges
 
-Initial charge: 0% for Holloway Stocks & Shares ISA (H-ISA-D), Holloway Stocks & Shares ISA (H-ISA-S). [REVIEW REQUIRED: confirm platform charge and ongoing advice charge rate, basis and coverage for all accounts covered by this report (existing platforms: Holloway)]
+Initial charge: 0%. [REVIEW REQUIRED: confirm platform charge and ongoing advice charge rate, basis and coverage for all accounts covered by this report (existing platforms: Holloway)]
 
 ## Conclusion
 

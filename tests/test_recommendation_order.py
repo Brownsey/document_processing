@@ -2,7 +2,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.reporting.rendering import render_slot
 
 
 def facts():
@@ -166,7 +166,7 @@ def test_existing_cash_funding_context_precedes_transfer():
 
 
 def test_pipeline_allows_empty_query_slot_but_keeps_other_shape_checks(tmp_path):
-    from test_workflow import CaseProvider, configured_case
+    from support.workflow import CaseProvider, configured_case
 
     from agent_pipeline.contracts import Ok
     from agent_pipeline.workflow import run_generation

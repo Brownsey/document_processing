@@ -1,6 +1,6 @@
 """Regression checks for recovered report-loop requirements in the native pipeline."""
 
-from agent_pipeline.workflow import select_facts
+from agent_pipeline.pipeline.prompt_inputs import select_facts
 
 
 def test_background_selector_excludes_recommendation_and_exclusion_facts():

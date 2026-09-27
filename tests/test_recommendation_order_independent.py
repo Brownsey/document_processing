@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.reporting.rendering import render_slot
 
 
 def test_pending_funding_remains_explicit_and_unavailable_before_action_bullets():

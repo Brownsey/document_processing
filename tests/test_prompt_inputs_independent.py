@@ -3,11 +3,12 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
-from test_workflow import CaseProvider, configured_case
+from support.workflow import CaseProvider, configured_case
 
 from agent_pipeline.contracts import Err, ModelReply, Ok, ProviderError
-from agent_pipeline.domain import CaseFacts
-from agent_pipeline.workflow import _structured, run_generation
+from agent_pipeline.pipeline.prompting import request_structured
+from agent_pipeline.rules.models import CaseFacts
+from agent_pipeline.workflow import run_generation
 
 
 def test_actual_extraction_schema_requires_every_field_and_forbids_extras():
@@ -20,7 +21,7 @@ def test_actual_extraction_schema_requires_every_field_and_forbids_extras():
                 ProviderError("offline_capture", "Stop after capturing the schema")
             )
 
-    _structured(
+    request_structured(
         Provider(), schema=CaseFacts, task="extract", instructions="Extract", context={}
     )
     assert len(captured) == 1
@@ -135,7 +136,7 @@ def test_citation_aliases_never_rewrite_account_ids_or_quoted_text():
             )
         )
 
-    result = _structured(
+    result = request_structured(
         SimpleNamespace(complete=complete),
         schema=CaseFacts,
         task="extract",

@@ -12,15 +12,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Generation does not require the development or local experiment tooling.
+# Generation does not require the development tooling.
 dev = [
     "pytest>=8.0",
     "ruff>=0.16.9",
     "ty==0.0.84",
-]
-experiment = [
-    "gepa==0.1.4",
-    "mlflow==3.16.1",
 ]
 
 [build-system]

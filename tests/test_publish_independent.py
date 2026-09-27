@@ -4,12 +4,12 @@ import argparse
 import json
 
 import pytest
-from test_workflow import CaseProvider, configured_case
+from support.workflow import CaseProvider, configured_case
 
 from agent_pipeline import generate
 from agent_pipeline.cli import add_runtime_arguments, workflow_options
 from agent_pipeline.contracts import Err, ModelReply, Ok, ProviderError
-from agent_pipeline.evaluation import score_report
+from agent_pipeline.evaluation.scoring import score_report
 from agent_pipeline.workflow import run_generation
 
 

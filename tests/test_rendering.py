@@ -49,7 +49,7 @@ def case():
 
 
 def test_holdings_respects_scope_and_preserves_qualification_date():
-    from agent_pipeline.rendering import render_slot
+    from agent_pipeline.reporting.rendering import render_slot
 
     result = render_slot("holdings", case(), {})
     assert "| Account | Owner | Type | Value |" in result
@@ -60,7 +60,7 @@ def test_holdings_respects_scope_and_preserves_qualification_date():
 
 
 def test_actions_keep_direction_conditions_and_zero_fee():
-    from agent_pipeline.rendering import render_slot
+    from agent_pipeline.reporting.rendering import render_slot
 
     facts = case()
     result = render_slot("actions", facts, {})
@@ -80,7 +80,7 @@ def test_actions_keep_direction_conditions_and_zero_fee():
 
 
 def test_scope_lists_planned_accounts_without_balances():
-    from agent_pipeline.rendering import render_slot
+    from agent_pipeline.reporting.rendering import render_slot
 
     facts = case()
     facts["requested_account_ids"].append("NEW-1")

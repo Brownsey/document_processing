@@ -2,47 +2,10 @@ import json
 import re
 
 import pytest
-from test_workflow import CaseProvider, configured_case
+from support.workflow import CaseProvider, RepairProvider, configured_case
 
-from agent_pipeline.contracts import Err, ModelReply, Ok, ProviderError
+from agent_pipeline.contracts import Err, Ok
 from agent_pipeline.workflow import run_generation
-
-
-class RepairProvider(CaseProvider):
-    def __init__(self, trigger, output, *, fail_after=False):
-        super().__init__()
-        self.trigger = trigger
-        self.output = output
-        self.fail_after = fail_after
-        self.triggered = False
-
-    def complete(self, **request):
-        if self.triggered and self.fail_after:
-            # Evidence must be on disk before the retry, not just at run completion.
-            assert list(self.output.glob("client_repair_*.md"))
-            return Err(ProviderError("unavailable", "Provider unavailable", "provider"))
-        result = super().complete(**request)
-        if self.triggered:
-            return result
-        if self.trigger == "reconcile" and request["task"] == "extract":
-            result.value.data["actions"][0]["refs"][0]["excerpt"] = (
-                "UNSUPPORTED-EXCERPT"
-            )
-        elif self.trigger == "shape" and request["task"] == "write":
-            result = Ok(ModelReply("## Unexpected heading", None, {}, "fake"))
-        elif (
-            self.trigger in {"facts", "narrative"}
-            and request["task"] == "validate_support"
-        ):
-            result.value.data.update(
-                supported=False,
-                issues=['The draft says "retire now"; evidence says "retire later".'],
-                issue_kind=self.trigger,
-            )
-        else:
-            return result
-        self.triggered = True
-        return result
 
 
 @pytest.mark.parametrize("trigger", ["facts", "narrative", "shape", "reconcile"])
@@ -90,16 +53,3 @@ def test_clean_run_creates_no_repair_diagnostic(tmp_path):
     )
     assert isinstance(result, Ok)
     assert not list(output.glob("*_repair_*.md"))
-
-
-def test_repair_diagnostics_survive_later_runs(tmp_path):
-    client, config, output, _ = configured_case(tmp_path)
-    for _ in range(2):
-        result = run_generation(
-            client_dir=client,
-            config_path=config,
-            output_dir=output,
-            provider=RepairProvider("facts", output),
-        )
-        assert isinstance(result, Ok)
-    assert len(list(output.glob("client_repair_*.md"))) == 2

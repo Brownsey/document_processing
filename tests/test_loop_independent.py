@@ -1,49 +1,10 @@
 """Independent negative checks for pooled funding safety."""
 
-import json
+from support.evidence import evidence as bundle
 
-from agent_pipeline.contracts import Err, EvidenceBlock, EvidenceBundle
-from agent_pipeline.domain import CaseFacts, reconcile
-
-
-def bundle(text: str) -> EvidenceBundle:
-    database = {
-        "holders": {
-            "client": {
-                "name": "Alex",
-                "accounts": [
-                    {
-                        "account_id": "GIA",
-                        "platform": "Platform",
-                        "type": "General Investment Account",
-                        "owner": "Alex",
-                        "status": "open",
-                        "value": 30000,
-                        "currency": "GBP",
-                        "valuation_date": "2026-04-30",
-                    },
-                    {
-                        "account_id": "ISA",
-                        "platform": "Platform",
-                        "type": "ISA",
-                        "owner": "Alex",
-                        "status": "open",
-                        "value": 10000,
-                        "currency": "GBP",
-                        "valuation_date": "2026-04-30",
-                    },
-                ],
-            }
-        }
-    }
-    return EvidenceBundle(
-        [
-            EvidenceBlock("db", "accounts.json", "$", json.dumps(database), "dbhash"),
-            EvidenceBlock("meeting", "notes.docx", "paragraph 1", text, "meetinghash"),
-        ],
-        [],
-        [database],
-    )
+from agent_pipeline.contracts import Err
+from agent_pipeline.rules.domain import reconcile
+from agent_pipeline.rules.models import CaseFacts
 
 
 def test_pooled_sources_cannot_be_allocated_twice():
@@ -136,7 +97,7 @@ def test_agreed_allocation_cannot_rely_on_contingent_receipt():
 
 
 def test_narrative_selectors_redact_unmarked_numeric_financial_amounts():
-    from agent_pipeline.workflow import select_facts
+    from agent_pipeline.pipeline.prompt_inputs import select_facts
 
     facts = {
         "narratives": [

@@ -1,51 +1,8 @@
-import json
+from support.evidence import evidence, ref
 
-from agent_pipeline.contracts import Err, EvidenceBlock, EvidenceBundle, Ok
-from agent_pipeline.domain import CaseFacts, reconcile
-
-
-def evidence(text):
-    database = {
-        "holders": {
-            "client": {
-                "name": "Alex",
-                "accounts": [
-                    {
-                        "account_id": "GIA",
-                        "platform": "Platform",
-                        "type": "General Investment Account",
-                        "owner": "Alex",
-                        "status": "open",
-                        "value": 30000,
-                        "currency": "GBP",
-                        "valuation_date": "2026-04-30",
-                    },
-                    {
-                        "account_id": "ISA",
-                        "platform": "Platform",
-                        "type": "ISA",
-                        "owner": "Alex",
-                        "status": "open",
-                        "value": 10000,
-                        "currency": "GBP",
-                        "valuation_date": "2026-04-30",
-                    },
-                ],
-            }
-        }
-    }
-    return EvidenceBundle(
-        [
-            EvidenceBlock("db", "accounts.json", "$", json.dumps(database), "dbhash"),
-            EvidenceBlock("meeting", "notes.docx", "paragraph 1", text, "meetinghash"),
-        ],
-        [],
-        [database],
-    )
-
-
-def ref(text):
-    return [{"evidence_id": "meeting", "excerpt": text}]
+from agent_pipeline.contracts import Err, Ok
+from agent_pipeline.rules.domain import reconcile
+from agent_pipeline.rules.models import CaseFacts
 
 
 def test_explicit_gia_disposal_cannot_be_a_transfer():
@@ -132,7 +89,7 @@ def test_observation_basis_cannot_silently_hide_a_new_valuation():
     import pytest
     from pydantic import ValidationError
 
-    from agent_pipeline.domain import Observation
+    from agent_pipeline.rules.models import Observation
 
     with pytest.raises(ValidationError):
         Observation.model_validate(

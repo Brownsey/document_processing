@@ -7,13 +7,14 @@ from decimal import Decimal
 import pytest
 
 from agent_pipeline.contracts import Err, EvidenceBlock, EvidenceBundle, Ok
+from agent_pipeline.rules import models
 
 
 @pytest.fixture
 def domain():
     return (
-        importlib.import_module("agent_pipeline.domain")
-        if importlib.util.find_spec("agent_pipeline.domain")
+        importlib.import_module("agent_pipeline.rules.domain")
+        if importlib.util.find_spec("agent_pipeline.rules.domain")
         else None
     )
 
@@ -49,7 +50,7 @@ def bundle(text="", *, duplicate=False, value=40000):
 
 
 def facts(domain, **kwargs):
-    return domain.CaseFacts(**kwargs)
+    return models.CaseFacts(**kwargs)
 
 
 def test_joint_identity_from_database_combines_holders_without_doubling_value(domain):

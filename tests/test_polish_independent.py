@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_pipeline.evaluation import _action_matches, _sentences
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.evaluation.actions import _action_matches
+from agent_pipeline.evaluation.matching import _sentences
+from agent_pipeline.reporting.rendering import render_slot
 
 
 @pytest.mark.parametrize(

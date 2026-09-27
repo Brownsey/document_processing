@@ -8,7 +8,7 @@ This firm is authorised and regulated by the Financial Conduct Authority.
 
 ## Background & Objectives
 
-Following James’s sale of his company in April, you both have no current income requirement from the portfolio; any consultancy work James may undertake is not settled. You both seek long-term growth and want to build a tax-efficient base to replace James’s income when he expects to step back from full-time work in about three years, with a balanced-to-moderate risk appetite (risk profile 4).
+James completed the sale of his business in April. You both have no current income requirement from the portfolio and seek long-term growth to build a tax-efficient base to replace James’s income when he steps back from full-time work in about three years; your risk appetite is balanced to moderate (risk profile 4).
 
 The accounts covered by this report are as follows:
 
@@ -27,29 +27,29 @@ The accounts covered by this report are as follows:
 
 The proposed plan is set out below:
 
-Funds received: Business sale completion payment held in a solicitor's client account: £850,000. Deferred earnout payable over two years if revenue targets are met (up to £400,000) is contingent and excluded from available funding. £200,000 reserved for Bridging loan repayment. Available funding after linked commitments: £650,000.
+Funds received: James's business sale completion payment held in a solicitor's client account: £850,000. James's deferred earnout, contingent on revenue targets (up to £400,000) is contingent and excluded from available funding. £200,000 reserved for Bridging loan repayment. Available funding after linked commitments: £650,000.
 
 - Sell the agreed portion of Holloway General Investment Account (H4-GIA-HJ).
 - Open a joint investment account for James Whitmore and Caroline Whitmore.
-- Contribute an amount to be confirmed to Holloway Stocks & Shares ISA (H4-ISA-J). Funding: Business sale completion payment held in a solicitor's client account. Use James's ISA allowance for the new tax year. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
-- Contribute an amount to be confirmed to Holloway Stocks & Shares ISA (H4-ISA-C). Funding: Business sale completion payment held in a solicitor's client account. Use Caroline's ISA allowance for the new tax year. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
-- Contribute an amount to be confirmed to Brightwell SIPP (B4-SIPP-J). Funding: Business sale completion payment held in a solicitor's client account. Contribute up to the appropriate level for James. Conditions: Size the contribution appropriately and do not exceed applicable limits; Pension contributions require confirmed allowance and contribution eligibility. Do not implement until these conditions are resolved.
-- Contribute an amount to be confirmed to Brightwell SIPP (B4-SIPP-C). Funding: Business sale completion payment held in a solicitor's client account. Contribute up to the appropriate level for Caroline. Conditions: Size the contribution appropriately and do not exceed applicable limits; Pension contributions require confirmed allowance and contribution eligibility. Do not implement until these conditions are resolved.
-- Contribute an amount to be confirmed to Holloway General Investment Account (H4-GIA-HJ). Funding: Business sale completion payment held in a solicitor's client account. Add to the Holloway joint GIA.
-- Contribute an amount to be confirmed to the proposed joint investment account for James Whitmore and Caroline Whitmore. Funding: Business sale completion payment held in a solicitor's client account. Place the remaining balance into the new jointly-held investment account.
+- Contribute an amount to be confirmed to Holloway Stocks & Shares ISA (H4-ISA-J). Funding: James's business sale completion payment held in a solicitor's client account. Use James's ISA allowance for the new tax year. Timing: New tax year. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
+- Contribute an amount to be confirmed to Holloway Stocks & Shares ISA (H4-ISA-C). Funding: James's business sale completion payment held in a solicitor's client account. Use Caroline's ISA allowance for the new tax year. Timing: New tax year. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
+- Contribute an amount to be confirmed to Brightwell SIPP (B4-SIPP-J). Funding: James's business sale completion payment held in a solicitor's client account. Contribute up to the appropriate level. Conditions: Size the contribution appropriately and do not breach pension limits; Pension contributions require confirmed allowance and contribution eligibility. Do not implement until these conditions are resolved.
+- Contribute an amount to be confirmed to Brightwell SIPP (B4-SIPP-C). Funding: James's business sale completion payment held in a solicitor's client account. Contribute up to the appropriate level. Conditions: Size the contribution appropriately and do not breach pension limits; Pension contributions require confirmed allowance and contribution eligibility. Do not implement until these conditions are resolved.
+- Contribute an amount to be confirmed to Holloway General Investment Account (H4-GIA-HJ). Funding: James's business sale completion payment held in a solicitor's client account. Add to the Holloway joint GIA.
+- Contribute an amount to be confirmed to the proposed joint investment account for James Whitmore and Caroline Whitmore. Funding: James's business sale completion payment held in a solicitor's client account. Place the remaining balance in the new jointly held investment account.
 - Rebalance Holloway General Investment Account (H4-GIA-HJ).
-- Retain the entire holding in Meridian Offshore Investment Bond (M4-BOND-J).
+- Retain the entire holding in Meridian Offshore Investment Bond (M4-BOND-J). Timing: Revisit at the next review.
 
-The proposed approach is intended to accommodate the remaining business sale proceeds, use the new tax year’s ISA allowances, make appropriate pension contributions and tidy the portfolio, in line with your long-term growth objective and aim of building a tax-efficient base to replace James’s income when he steps back from full-time work.
+This approach is intended to build a tax-efficient base for long-term growth and support your objective of replacing James’s income when he steps back from full-time work.
 
 
 **Adviser confirmations:**
 
-[REVIEW REQUIRED: Confirm the balance of Caroline's Meridian cash account before finalising (Meridian Cash Account (M4-CASH-C)).]
+[REVIEW REQUIRED: Confirm Caroline's Meridian cash balance before finalising (Meridian Cash Account (M4-CASH-C)).]
 
-[REVIEW REQUIRED: Confirm the timing of the bridging loan repayment.]
+[REVIEW REQUIRED: Confirm the timing of the bridging-loan repayment.]
 
-[REVIEW REQUIRED: Why is a new joint investment account needed rather than reusing the existing Holloway joint GIA, and what are the relevant costs and tax considerations? (Holloway General Investment Account (H4-GIA-HJ) and the proposed joint investment account for James Whitmore and Caroline Whitmore).]
+[REVIEW REQUIRED: Clarify why a new joint investment account is needed rather than reusing an existing account, including relevant costs and tax considerations (Holloway General Investment Account (H4-GIA-HJ) and Brightwell General Investment Account (B4-GIA-J) and the proposed joint investment account for James Whitmore and Caroline Whitmore).]
 
 [REVIEW REQUIRED: Confirm existing subscriptions and each recipient's remaining ISA allowance for the relevant tax year before implementation (Holloway Stocks & Shares ISAs (H4-ISA-J and H4-ISA-C)).]
 

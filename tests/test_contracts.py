@@ -93,3 +93,29 @@ def test_error_type_owns_manifest_status():
         ReportBlocked("missing_evidence", "Unsupported report").manifest_status
         == "blocked"
     )
+
+
+def test_run_state_keeps_working_fields_out_of_saved_manifest():
+    from agent_pipeline.contracts import RunState
+
+    state = RunState(manifest={"status": "blocked"})
+    state.facts = {"requested_account_ids": ["ISA-1"]}
+    state.repair_feedback = ["Unsupported claim"]
+    state.blocked_report = "Rejected draft"
+    saved = state.snapshot()
+    assert saved == {
+        "status": "blocked",
+        "facts": {"requested_account_ids": ["ISA-1"]},
+    }
+    saved["status"] = "changed"
+    assert state.manifest["status"] == "blocked"
+
+
+def test_run_state_facts_are_isolated_between_runs():
+    from agent_pipeline.contracts import RunState
+
+    first, second = RunState(manifest={}), RunState(manifest={})
+    first.facts["requested_account_ids"] = ["ISA-1"]
+    assert second.facts == {}
+    assert second.repair_feedback is None
+    assert second.blocked_report is None

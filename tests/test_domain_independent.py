@@ -13,7 +13,8 @@ from agent_pipeline.contracts import (
     Ok,
     ReportBlocked,
 )
-from agent_pipeline.domain import CaseFacts, reconcile
+from agent_pipeline.rules.domain import reconcile
+from agent_pipeline.rules.models import CaseFacts
 
 
 def evidence(text, *, value=31500.27):
@@ -471,6 +472,62 @@ def test_duplicate_actions_do_not_create_a_second_disposal():
         assert len(result.value.actions) == 1
     else:
         assert isinstance(result, Err)
+
+
+def test_distinct_exclusions_with_same_rationale_keep_their_source_subjects():
+    text = "A future vehicle purchase and a property gift are outside this advice."
+    actions = [
+        {
+            "action_id": f"excluded-{index}",
+            "kind": "exclude",
+            "status": "excluded",
+            "rationale": "A future aspiration outside this advice.",
+            "refs": ref(subject),
+        }
+        for index, subject in enumerate(["vehicle purchase", "property gift"])
+    ]
+    result = run(text, actions=actions)
+    assert isinstance(result, Ok), result
+    assert len(result.value.actions) == 2
+    assert [a.refs[0].excerpt for a in result.value.actions] == [
+        "vehicle purchase",
+        "property gift",
+    ]
+    assert all(a.status == "excluded" for a in result.value.actions)
+
+
+@pytest.mark.parametrize("kind", ["exclude", "dispose"])
+def test_duplicate_action_stays_blocked_when_only_its_id_changes(kind):
+    text = "Leave a future gift outside this advice. Sell J-77 in full."
+    action = {
+        "kind": kind,
+        "source_account_id": "J-77" if kind == "dispose" else None,
+        "extent": "full" if kind == "dispose" else "unspecified",
+        "status": "agreed" if kind == "dispose" else "excluded",
+        "refs": ref(text),
+    }
+    result = run(text, actions=[dict(action, action_id=key) for key in ["a", "b"]])
+    assert isinstance(result, Err)
+    assert result.error.code == "duplicate_action"
+
+
+def test_duplicate_disposals_remain_blocked_across_distinct_citations():
+    excerpts = ["Sell J-77 in full.", "The whole J-77 holding should be sold."]
+    result = run(
+        " ".join(excerpts),
+        actions=[
+            {
+                "action_id": f"sale-{index}",
+                "kind": "dispose",
+                "source_account_id": "J-77",
+                "extent": "full",
+                "refs": ref(excerpt),
+            }
+            for index, excerpt in enumerate(excerpts)
+        ],
+    )
+    assert isinstance(result, Err)
+    assert result.error.code == "duplicate_action"
 
 
 def test_valid_pooled_allocation_remains_supported():

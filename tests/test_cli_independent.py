@@ -6,8 +6,10 @@ import httpx
 import pytest
 from openai import OpenAI
 
-from agent_pipeline import evaluation, generate, providers
+from agent_pipeline import generate
+from agent_pipeline.adapters import providers
 from agent_pipeline.contracts import Err, Ok
+from agent_pipeline.evaluation import runner as evaluation
 
 
 @pytest.fixture(autouse=True)
@@ -100,6 +102,13 @@ def test_invalid_provider_options_never_construct_client(
 
 @pytest.mark.parametrize("command", [generate, evaluation])
 def test_openrouter_requires_model_before_client_creation(command, monkeypatch):
+    monkeypatch.setenv("OPENAI_MODEL", "openai-only-model")
+
+    def forbidden(**kwargs):
+        pytest.fail("Missing OpenRouter model reached provider setup")
+
+    monkeypatch.setattr(generate, "create_provider", forbidden)
+    monkeypatch.setattr(providers, "create_provider", forbidden)
     monkeypatch.setattr(
         providers, "OpenAI", lambda **kwargs: pytest.fail("SDK created")
     )
@@ -215,7 +224,7 @@ def test_router_missing_key_never_falls_back_to_openai(monkeypatch, tmp_path):
 
 
 def test_generation_cli_call_limit_stops_real_workflow(monkeypatch, tmp_path):
-    from test_workflow import CaseProvider, configured_case
+    from support.workflow import CaseProvider, configured_case
 
     client, config, output, _ = configured_case(tmp_path)
     provider = CaseProvider()

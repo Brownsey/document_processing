@@ -1,18 +1,12 @@
 """Independent scoring must fail corrupt prose even when its manifest claims success."""
 
 import copy
-import importlib
-import importlib.util
 import json
 from pathlib import Path
 
 import pytest
 
-
-def evaluator():
-    spec = importlib.util.find_spec("agent_pipeline.evaluation")
-    assert spec is not None, "independent evaluator is not implemented"
-    return importlib.import_module("agent_pipeline.evaluation")
+from agent_pipeline.evaluation import runner as evaluation
 
 
 @pytest.fixture
@@ -69,7 +63,7 @@ If you are happy to proceed with our recommendations, please let us know and we 
 
 
 def score(report, case):
-    return evaluator().score_report(
+    return evaluation.score_report(
         report, {"status": "needs_review", "validation": {"passed": True}}, case
     )
 
@@ -171,7 +165,7 @@ def test_full_partial_and_allowance_condition(report, case):
 
 
 def test_fingerprint_detects_expectation_and_source_edits(tmp_path):
-    e = evaluator()
+    e = evaluation
     source = tmp_path / "source.txt"
     source.write_text("one")
     first = e.fingerprint_files([source])
@@ -180,14 +174,13 @@ def test_fingerprint_detects_expectation_and_source_edits(tmp_path):
     assert e.fingerprint({"a": 1}) != e.fingerprint({"a": 2})
 
 
-def test_no_valid_draft_has_no_cost_denominator():
-    result = evaluator().summarise_runs(
+def test_summary_keeps_failed_run_usage_without_cost_tracking():
+    result = evaluation.summarise_runs(
         [
             {
                 "passed": False,
                 "usage": [
                     {
-                        "cost_usd": 0.4,
                         "input_tokens": 50,
                         "output_tokens": 5,
                         "outcome": "failed",
@@ -197,10 +190,15 @@ def test_no_valid_draft_has_no_cost_denominator():
             }
         ]
     )
-    assert result["cost_per_valid_draft_usd"] is None
-    assert result["known_cost_usd"] == 0.4
-    assert result["input_tokens"] == 50
-    assert result["valid_drafts"] == 0
+    assert result == {
+        "runs": 1,
+        "valid_drafts": 0,
+        "input_tokens": 50,
+        "output_tokens": 5,
+        "retries": 0,
+        "latency_seconds": 2,
+        "pass_rate": 0,
+    }
 
 
 def test_source_reviewed_development_expectations_exist():
@@ -240,23 +238,22 @@ def test_extraction_checked_independently_of_rendered_report(report, case):
             ],
         },
     }
-    assert evaluator().score_report(report, manifest, case)["passed"]
+    assert evaluation.score_report(report, manifest, case)["passed"]
     manifest["facts"]["accounts"][0]["valuation"]["value"] = "520000"
-    assert not evaluator().score_report(report, manifest, case)["passed"]
+    assert not evaluation.score_report(report, manifest, case)["passed"]
 
 
-def test_nested_usage_unknown_failure_cost_and_retry_count():
-    summary = evaluator().summarise_runs(
+def test_nested_usage_includes_failed_attempts_and_retry_count():
+    summary = evaluation.summarise_runs(
         [
             {
                 "passed": True,
                 "usage": [
                     {
                         "usage": {"input_tokens": 25, "output_tokens": 4},
-                        "estimated_cost_usd": 0.1,
                         "attempt": 1,
                     },
-                    {"usage": {}, "estimated_cost_usd": None, "attempt": 2},
+                    {"usage": {}, "attempt": 2},
                 ],
                 "latency_seconds": 1,
             }
@@ -264,8 +261,6 @@ def test_nested_usage_unknown_failure_cost_and_retry_count():
     )
     assert summary["input_tokens"] == 25
     assert summary["output_tokens"] == 4
-    assert summary["cost_per_valid_draft_usd"] is None
-    assert summary["unknown_cost_records"] == 1
     assert summary["retries"] == 1
 
 
@@ -306,7 +301,7 @@ def test_failed_shared_generation_preserves_error_usage_and_snapshot(
     config.write_text(json.dumps({"sections": []}))
 
     class Provider:
-        records = [{"usage": {"input_tokens": 17}, "estimated_cost_usd": None}]
+        records = [{"usage": {"input_tokens": 17}}]
         settings = {"model": "offline"}
 
     error = ProviderError("authentication", "Safe message", stage="extraction")
@@ -318,7 +313,7 @@ def test_failed_shared_generation_preserves_error_usage_and_snapshot(
 
     monkeypatch.setattr(generation, "run_generation", fail)
     output = tmp_path / "output"
-    result = evaluator().evaluate_case(
+    result = evaluation.evaluate_case(
         client_dir=source,
         config_path=config,
         expected_path=expected,
@@ -334,6 +329,17 @@ def test_failed_shared_generation_preserves_error_usage_and_snapshot(
     assert len(calls) == 1 and "expected" not in calls[0]
     snapshot = Path(result["input_snapshot"])
     assert (snapshot / "expectations.json").is_file()
+    package = Path(evaluation.__file__).parents[1]
+    sources = {path.relative_to(package) for path in package.rglob("*.py")}
+    copied = {
+        path.relative_to(snapshot / "code")
+        for path in (snapshot / "code").rglob("*.py")
+    }
+    assert copied == sources
+    for relative in sources:
+        assert (snapshot / "code" / relative).read_bytes() == (
+            package / relative
+        ).read_bytes()
     assert (
         Path(result["source_snapshot"]) / "notes.txt"
     ).read_text() == "Independent source"
@@ -379,10 +385,10 @@ def test_cli_loads_dotenv_and_stops_after_permanent_authentication_failure(
 
     import dotenv
 
-    import agent_pipeline.providers as providers
+    import agent_pipeline.adapters.providers as providers
     from agent_pipeline.contracts import Ok
 
-    module = evaluator()
+    module = evaluation
     marker = "EVALUATION_TEST_CREDENTIAL"
     monkeypatch.delenv(marker, raising=False)
     env = tmp_path / ".env"
@@ -406,7 +412,7 @@ def test_cli_loads_dotenv_and_stops_after_permanent_authentication_failure(
                 "code": "authentication",
                 "stage": "provider",
             },
-            "usage": [{"estimated_cost_usd": None, "usage": {}}],
+            "usage": [{"usage": {}}],
             "failures": ["authentication"],
         }
 
@@ -420,157 +426,6 @@ def test_cli_loads_dotenv_and_stops_after_permanent_authentication_failure(
     summary = json.loads(
         next((tmp_path / "runs").glob("*/comparison.json")).read_text()
     )
-    assert summary["variants"]["candidate"]["unknown_cost_records"] == 1
+    assert summary["variants"]["candidate"]["input_tokens"] == 0
+    assert summary["variants"]["candidate"]["valid_drafts"] == 0
     assert summary["stopping_reason"] == "authentication"
-
-
-def test_advisory_judge_requires_reviewed_rubric_before_calls(tmp_path):
-    module = evaluator()
-    assert hasattr(module, "advisory_judge"), "postreview advisory judge is missing"
-
-    class Never:
-        def complete(self, **kwargs):
-            raise AssertionError("unreviewed rubric called provider")
-
-    result = module.advisory_judge(
-        report="report",
-        client_dir=tmp_path,
-        expected={},
-        provider=Never(),
-        prompt="judge",
-        rubric={},
-    )
-    assert result["status"] == "unavailable"
-
-
-def test_advisory_judge_reads_independent_sources_and_meters(tmp_path, monkeypatch):
-    module = evaluator()
-    assert hasattr(module, "advisory_judge"), "postreview advisory judge is missing"
-    import agent_pipeline.evidence as evidence
-    from agent_pipeline.contracts import EvidenceBlock, EvidenceBundle, ModelReply, Ok
-
-    monkeypatch.setattr(
-        evidence,
-        "load_sources",
-        lambda *args, **kwargs: Ok(
-            EvidenceBundle(
-                [
-                    EvidenceBlock(
-                        "e1",
-                        "notes",
-                        "paragraph 1",
-                        "Independently sourced instruction",
-                        "digest",
-                    )
-                ],
-                [],
-                [],
-            )
-        ),
-    )
-
-    class Judge:
-        records = []
-        settings = {"model": "offline-judge"}
-
-        def complete(self, **kwargs):
-            assert kwargs["task"] == "advisory_judge"
-            assert kwargs["context"]["report"] == "actual rendered report"
-            assert (
-                kwargs["context"]["evidence"][0]["text"]
-                == "Independently sourced instruction"
-            )
-            assert kwargs["context"]["expectations"]["partition"] == "reserved"
-            assert "facts" not in kwargs["context"]
-            self.records.append(
-                {
-                    "estimated_cost_usd": 0.03,
-                    "usage": {"input_tokens": 27, "output_tokens": 4},
-                }
-            )
-            return Ok(
-                ModelReply(
-                    "",
-                    {
-                        "score": 0.8,
-                        "rationale": "Faithful, some repetition.",
-                        "concerns": [],
-                    },
-                    {},
-                    "offline-judge",
-                )
-            )
-
-    prompt = "Judge only evidence-supported quality."
-    rubric = {
-        "review_status": "approved",
-        "reviewed_by": "Test reviewer",
-        "reviewed_at": "2026-09-26",
-        "instructions": "Check clarity and uncertainty.",
-        "prompt_sha256": module.fingerprint(prompt),
-    }
-    result = module.advisory_judge(
-        report="actual rendered report",
-        client_dir=tmp_path,
-        expected={"partition": "reserved"},
-        provider=Judge(),
-        prompt=prompt,
-        rubric=rubric,
-    )
-    assert result["status"] == "scored" and result["score"] == 0.8
-    assert result["usage"][0]["estimated_cost_usd"] == 0.03
-
-
-def test_postreview_comparison_gate_precedes_provider_setup(tmp_path):
-    module = evaluator()
-    assert hasattr(module, "compare_finalist"), "postreview comparison is missing"
-
-    def never():
-        raise AssertionError("provider setup reached before approval")
-
-    with pytest.raises(ValueError, match="review"):
-        module.compare_finalist(
-            baseline_config_path=tmp_path / "baseline.json",
-            finalist_config_path=tmp_path / "finalist.json",
-            registration={},
-            approval={},
-            data_dir=tmp_path,
-            expectations_dir=tmp_path,
-            output_dir=tmp_path / "out",
-            provider_factory=never,
-        )
-
-
-def test_pending_judge_rubric_rejected_before_generations(tmp_path):
-    module = evaluator()
-    config = tmp_path / "config.json"
-    config.write_text("{}")
-    registration = {
-        "config_sha256": module.fingerprint({}),
-        "prompts": {"extraction_prompt": "prompts:/reviewed/1"},
-    }
-    approval = {
-        "review_status": "approved",
-        "reviewed_by": "Reviewer",
-        "reviewed_at": "2026-09-26",
-        "config_sha256": registration["config_sha256"],
-        "prompt_versions": registration["prompts"],
-    }
-
-    def never():
-        raise AssertionError("Provider reached before judge rubric validation")
-
-    with pytest.raises(ValueError, match="rubric"):
-        module.compare_finalist(
-            baseline_config_path=config,
-            finalist_config_path=config,
-            registration=registration,
-            approval=approval,
-            data_dir=tmp_path,
-            expectations_dir=tmp_path,
-            output_dir=tmp_path / "out",
-            provider_factory=never,
-            judge_provider_factory=never,
-            judge_prompt="judge",
-            rubric={"review_status": "pending_user_review"},
-        )

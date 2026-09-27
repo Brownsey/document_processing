@@ -8,7 +8,7 @@ This firm is authorised and regulated by the Financial Conduct Authority.
 
 ## Background & Objectives
 
-You are retired and reported no changes to your circumstances or objectives since your previous review. You have no current income requirement from your portfolio and do not expect this to change in the near term; you remain comfortable with the agreed moderate approach to risk (risk profile 4).
+You are retired and report no changes to your circumstances or objectives since last year’s review. You have no current income requirement from the portfolio and do not expect this to change in the near term; you remain comfortable with the agreed moderate approach to risk (risk profile 4).
 
 The accounts covered by this report are as follows:
 
@@ -22,9 +22,9 @@ The proposed plan is set out below:
 
 No investments are being sold; these transfers use existing cash.
 
-- Transfer £20,000 from Holloway Cash Account (H-CASH-01) to Holloway Stocks & Shares ISA (H-ISA-01). Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
+- Transfer £20,000 from Holloway Cash Account (H-CASH-01) to Holloway Stocks & Shares ISA (H-ISA-01). Timing: This year's ISA allowance. Conditions: ISA top-ups require confirmation of each recipient's remaining allowance for the relevant tax year.
 
-This recommendation is intended to use this year's ISA allowance.
+This approach will allow you to use this year's ISA allowance.
 
 
 **Adviser confirmations:**

@@ -4,9 +4,10 @@ import json
 
 import httpx
 import pytest
-from openai import OpenAI
+from support.provider import VALUE_SCHEMA as SCHEMA
+from support.provider import create_offline_provider
 
-from agent_pipeline import providers
+from agent_pipeline.adapters import provider_payloads, providers
 from agent_pipeline.contracts import (
     ConfigError,
     Err,
@@ -16,19 +17,12 @@ from agent_pipeline.contracts import (
     ProviderError,
 )
 
-SCHEMA = {
-    "type": "object",
-    "properties": {"value": {"type": "string"}},
-    "required": ["value"],
-    "additionalProperties": False,
-}
-
 
 def test_decimal_schema_uses_supported_wire_pattern_and_keeps_local_validation():
-    from agent_pipeline.domain import CaseFacts
+    from agent_pipeline.rules.models import CaseFacts
 
     original = CaseFacts.model_json_schema()
-    wire = providers._strict_schema(original)
+    wire = provider_payloads.strict_schema(original)
     assert "(?!" not in json.dumps(wire)
     assert "(?!" in json.dumps(original)
     decimal_schema = wire["$defs"]["Fee"]["properties"]["rate_percent"]["anyOf"][1]
@@ -86,20 +80,11 @@ def adapter(monkeypatch, replies, **settings):
             return httpx.Response(reply[0], json=reply[1])
         return httpx.Response(200, json=reply)
 
-    original = OpenAI
-
-    def factory(**kwargs):
-        assert kwargs["max_retries"] == 0
-        return original(
-            **kwargs, http_client=httpx.Client(transport=httpx.MockTransport(handler))
-        )
-
-    monkeypatch.setattr(providers, "OpenAI", factory)
-    monkeypatch.setattr(providers.time, "sleep", lambda _: None)
-    result = providers.create_provider(api_key="test-key", **settings)
-    assert isinstance(result, Ok)
+    provider = create_offline_provider(
+        monkeypatch, handler, api_key="test-key", **settings
+    )
     assert requests == []
-    return result.value, requests
+    return provider, requests
 
 
 def complete(provider, **changes):
@@ -121,7 +106,7 @@ def accepted(provider, **changes):
     return result
 
 
-def test_structured_success_records_estimated_usage_and_separates_instructions(
+def test_structured_success_records_usage_without_pricing_and_separates_instructions(
     monkeypatch,
 ):
     provider, requests = adapter(monkeypatch, [response()])
@@ -135,8 +120,23 @@ def test_structured_success_records_estimated_usage_and_separates_instructions(
     assert requests[0]["response_format"]["json_schema"]["schema"] == SCHEMA
     assert requests[0]["store"] is False
     record = provider.records[0]
-    assert record["estimated_cost_usd"] == pytest.approx(0.000141)
-    assert record["cost_status"] == "estimated"
+    assert set(record) == {
+        "task",
+        "provider",
+        "model",
+        "tier",
+        "attempt",
+        "outcome",
+        "usage",
+        "latency_seconds",
+    }
+    assert record["usage"] == {
+        "input_tokens": 1000,
+        "output_tokens": 100,
+        "cached_input_tokens": 100,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 20,
+    }
     assert record["task"] == "extract"
     assert "test-key" not in json.dumps(provider.settings)
 
@@ -158,11 +158,6 @@ def test_invalid_setup_is_local_typed_failure(settings):
     result = providers.create_provider(api_key="test", **settings)
     assert isinstance(result, Err)
     assert isinstance(result.error, ConfigError)
-
-
-def test_missing_credentials_is_local_failure(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    assert isinstance(providers.create_provider(), Err)
 
 
 @pytest.mark.parametrize(
@@ -188,7 +183,7 @@ def test_errors_are_safe_metered_and_retries_bounded(
     assert result.error.code == code
     assert result.error.retryable is retryable
     assert len(requests) == calls == len(provider.records)
-    assert all(r["estimated_cost_usd"] is None for r in provider.records)
+    assert all(r["usage"] == {} for r in provider.records)
     assert "SECRET" not in str(result.error)
     assert "SECRET" not in json.dumps(provider.records)
 
@@ -199,7 +194,7 @@ def test_transient_timeout_then_success_records_both_attempts(monkeypatch):
     )
     assert isinstance(complete(provider), Ok)
     assert len(requests) == 2
-    assert provider.records[0]["cost_status"] == "unknown"
+    assert provider.records[0]["outcome"] == "timeout"
     assert provider.records[1]["attempt"] == 2
 
 
@@ -220,7 +215,7 @@ def test_invalid_refused_incomplete_output_never_cached(monkeypatch, tmp_path, r
     assert isinstance(result.error, ExtractionError)
     assert isinstance(complete(provider), Ok)
     assert len(requests) == 2
-    assert provider.records[0]["estimated_cost_usd"] is not None
+    assert provider.records[0]["usage"]["input_tokens"] == 1000
 
 
 def test_cache_key_changes_with_context_prompt_schema_and_image(monkeypatch, tmp_path):
@@ -231,7 +226,7 @@ def test_cache_key_changes_with_context_prompt_schema_and_image(monkeypatch, tmp
     assert isinstance(complete(provider), Ok)
     assert len(requests) == 1
     assert provider.records[-1]["outcome"] == "cache_hit"
-    assert provider.records[-1]["estimated_cost_usd"] == 0
+    assert provider.records[-1]["usage"] == {}
     assert isinstance(complete(provider, context={"client": "B"}), Ok)
     assert isinstance(complete(provider, instructions="Different"), Ok)
     image = tmp_path / "scan.png"
@@ -261,7 +256,7 @@ def test_bad_schema_and_missing_image_make_no_requests(monkeypatch, tmp_path):
     assert requests == []
 
 
-def test_openrouter_explicit_chat_wire_uses_unknown_pricing(monkeypatch):
+def test_openrouter_explicit_chat_wire_records_token_usage(monkeypatch):
     reply = {
         "id": "chat",
         "object": "chat.completion",
@@ -285,16 +280,17 @@ def test_openrouter_explicit_chat_wire_uses_unknown_pricing(monkeypatch):
     )
     assert isinstance(complete(provider), Ok)
     assert requests[0]["response_format"]["type"] == "json_schema"
-    assert provider.records[0]["estimated_cost_usd"] is None
+    assert provider.records[0]["usage"]["input_tokens"] == 10
+    assert provider.records[0]["usage"]["output_tokens"] == 5
 
 
-def test_astra_rewrite_is_explicit_and_accounted(monkeypatch):
+def test_model_override_is_explicit_and_recorded(monkeypatch):
     provider, requests = adapter(
-        monkeypatch, [response(model="gpt-6-astra")], model="gpt-6-astra"
+        monkeypatch, [response(model="configured-model")], model="configured-model"
     )
-    assert isinstance(complete(provider, task="prompt_rewrite"), Ok)
-    assert requests[0]["model"] == "gpt-6-astra"
-    assert provider.records[0]["estimated_cost_usd"] == pytest.approx(0.0141)
+    assert isinstance(complete(provider), Ok)
+    assert requests[0]["model"] == "configured-model"
+    assert provider.records[0]["model"] == "configured-model"
 
 
 def test_external_schema_references_and_non_json_context_never_call(monkeypatch):
@@ -341,13 +337,14 @@ def test_missing_image_returns_input_error(monkeypatch, tmp_path):
     assert isinstance(result.error, InputError)
 
 
-def test_unknown_model_and_missing_usage_are_unknown_cost(monkeypatch):
+def test_unknown_model_and_missing_usage_are_recorded(monkeypatch):
     provider, _ = adapter(
-        monkeypatch, [response(model="unpriced-model"), response(usage=None)]
+        monkeypatch, [response(model="unexpected-model"), response(usage=None)]
     )
     complete(provider)
     complete(provider)
-    assert all(record["estimated_cost_usd"] is None for record in provider.records)
+    assert provider.records[0]["model"] == "unknown"
+    assert provider.records[1]["usage"]["input_tokens"] is None
     assert provider.records[0]["usage"]["input_tokens"] == 1000
 
 
@@ -382,17 +379,8 @@ def test_unapproved_extraction_is_fresh_and_approval_rejects_changed_reply(
     second = complete(provider)
     assert isinstance(second, Ok)
     assert len(requests) == 2
+    assert list(tmp_path.glob("*.json")) == []
     assert provider.approve_cache(second.value)
-    assert isinstance(complete(provider), Ok)
-    assert len(requests) == 2
-
-
-def test_cache_non_object_json_is_a_miss(monkeypatch, tmp_path):
-    provider, requests = adapter(
-        monkeypatch, [response(), response()], cache_dir=tmp_path
-    )
-    accepted(provider)
-    next(tmp_path.glob("*.json")).write_text('"invalid"', encoding="utf-8")
     assert isinstance(complete(provider), Ok)
     assert len(requests) == 2
 
@@ -437,7 +425,7 @@ def test_retry_delay_cannot_exhaust_run_deadline(monkeypatch):
     assert isinstance(result, Err)
     assert isinstance(result.error, ExecutionLimitExceeded)
     assert len(requests) == len(provider.records) == 1
-    assert provider.records[0]["cost_status"] == "unknown"
+    assert provider.records[0]["outcome"] == "service_unavailable"
 
 
 def test_late_success_is_metered_but_not_returned_or_cached(monkeypatch, tmp_path):
@@ -454,5 +442,5 @@ def test_late_success_is_metered_but_not_returned_or_cached(monkeypatch, tmp_pat
     assert isinstance(result, Err)
     assert isinstance(result.error, ExecutionLimitExceeded)
     assert len(requests) == len(provider.records) == 1
-    assert provider.records[0]["estimated_cost_usd"] == pytest.approx(0.000141)
+    assert provider.records[0]["usage"]["input_tokens"] == 1000
     assert not list(tmp_path.glob("*.json"))

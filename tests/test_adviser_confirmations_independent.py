@@ -4,12 +4,13 @@ import json
 from copy import deepcopy
 
 import pytest
-from test_adviser_confirmations import QueryProvider
-from test_workflow import configured_case
+from support.workflow import QueryProvider, configured_case
 
-from agent_pipeline import evaluation, generate, providers
+from agent_pipeline import generate
+from agent_pipeline.adapters import providers
 from agent_pipeline.contracts import Err, Ok
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.evaluation import runner as evaluation
+from agent_pipeline.reporting.rendering import render_slot
 from agent_pipeline.workflow import run_generation
 
 

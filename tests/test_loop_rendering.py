@@ -1,4 +1,4 @@
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.reporting.rendering import render_slot
 
 
 def test_review_note_keeps_its_account_in_the_same_sentence():

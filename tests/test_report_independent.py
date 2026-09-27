@@ -19,8 +19,10 @@ from agent_pipeline.contracts import (
     ProviderError,
     ReportBlocked,
 )
-from agent_pipeline.validation import FCA_LINE, RISK_WARNING
-from agent_pipeline.workflow import BudgetPort, _investigate, run_generation
+from agent_pipeline.pipeline.investigation import investigate
+from agent_pipeline.pipeline.prompting import ModelSession
+from agent_pipeline.pipeline.validation import FCA_LINE, RISK_WARNING
+from agent_pipeline.workflow import run_generation
 
 
 class SourceProvider:
@@ -37,7 +39,7 @@ class SourceProvider:
     def complete(self, **request):
         self.calls.append(deepcopy(request))
         task = request["task"]
-        self.usage_records.append({"task": task, "estimated_cost_usd": 0.002})
+        self.usage_records.append({"task": task})
         if task == "write" and self.interrupt:
             raise KeyboardInterrupt
         if task == "write" and self.failure:
@@ -293,7 +295,7 @@ def test_investigator_caps_successful_searches_and_never_promotes_source_instruc
     )
     provider = Searches()
     trace = []
-    result = _investigate({}, bundle, BudgetPort(provider), {}, trace)
+    result = investigate({}, bundle, ModelSession(provider), {}, trace)
     assert isinstance(result, Ok)
     assert len(provider.calls) == 8
     assert trace[-1]["stopping_reason"] == "turn_limit"
@@ -395,7 +397,7 @@ def test_reextraction_is_reviewed_before_report_or_cache_release(
 def test_mixed_repairs_share_limits_invalidate_prose_and_approve_only_final_facts(
     source_case, monkeypatch, final_supported
 ):
-    from agent_pipeline import evidence
+    from agent_pipeline.adapters import evidence
 
     original_load = evidence.load_sources
     loads = []
@@ -505,13 +507,13 @@ def test_investigation_turn_budget_persists_across_repair_attempts():
             )
 
     provider = ReadingProvider()
-    port = BudgetPort(provider)
+    port = ModelSession(provider)
     bundle = EvidenceBundle(
         [EvidenceBlock("e1", "notes.txt", "line 1", "Own evidence", "hash")], [], []
     )
     trace = []
     for _ in range(6):
-        assert isinstance(_investigate({}, bundle, port, {}, trace), Ok)
+        assert isinstance(investigate({}, bundle, port, {}, trace), Ok)
     assert provider.calls == 8
     assert sum("turn" in event for event in trace) == 8
 

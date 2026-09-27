@@ -3,10 +3,11 @@
 import json
 
 import pytest
-from test_workflow import CaseProvider, configured_case
+from support.workflow import CaseProvider, configured_case
 
 from agent_pipeline.contracts import Err, ModelReply, Ok
-from agent_pipeline.workflow import BudgetPort, run_generation
+from agent_pipeline.pipeline.prompting import ModelSession
+from agent_pipeline.workflow import run_generation
 
 
 @pytest.mark.parametrize(
@@ -23,7 +24,7 @@ def test_shared_tone_reaches_every_model_task_without_rewriting_payload(task):
 
     context = {"evidence": "KEEP exactly: a-b, GBP 7,251", "account_id": "e1"}
     schema = {"type": "object", "properties": {"quoted_text": {"type": "string"}}}
-    port = BudgetPort(Provider(), tone_of_voice="Calm, direct and concise.")
+    port = ModelSession(Provider(), tone_of_voice="Calm, direct and concise.")
     reply = port.complete(
         task=task, instructions="Task contract", context=context, schema=schema
     )

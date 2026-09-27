@@ -21,6 +21,20 @@ class Err(Generic[E]):
 Result: TypeAlias = Ok[T] | Err[E]
 
 
+@dataclass
+class RunState:
+    """Working facts and repair state, separate from persisted run metadata."""
+
+    manifest: dict[str, Any]
+    facts: dict[str, Any] = field(default_factory=dict)
+    repair_feedback: list[str] | list[dict[str, Any]] | None = None
+    blocked_report: str | None = None
+
+    def snapshot(self) -> dict[str, Any]:
+        """Keep the existing manifest format without temporary working fields."""
+        return self.manifest | {"facts": self.facts}
+
+
 @dataclass(frozen=True)
 class PipelineError:
     code: str

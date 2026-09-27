@@ -5,8 +5,8 @@ from datetime import date
 import pytest
 from test_isa_disposal import apply, case
 
-from agent_pipeline import domain
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.reporting.rendering import render_slot
+from agent_pipeline.rules import domain, models
 
 
 @pytest.mark.parametrize(
@@ -55,7 +55,7 @@ def test_unknown_recipient_ownership_keeps_pause_without_numeric_capacity():
 def test_capacity_review_with_distinct_condition_is_not_hidden_by_general_pause():
     facts = apply(case())
     facts.review_items.append(
-        domain.ReviewItem(
+        models.ReviewItem(
             code="isa_capacity",
             message="Confirm ISA subscription eligibility after the client's tax residence changes.",
             account_ids=["ISA-0"],
@@ -68,7 +68,7 @@ def test_capacity_review_with_distinct_condition_is_not_hidden_by_general_pause(
 def test_administrative_review_heading_does_not_turn_it_into_implementation_condition():
     facts = case()
     facts.review_items = [
-        domain.ReviewItem(
+        models.ReviewItem(
             code="source_request",
             message="Confirm the statement delivery address before finalising.",
             account_ids=["ISA-0"],
@@ -80,22 +80,22 @@ def test_administrative_review_heading_does_not_turn_it_into_implementation_cond
 
 
 def test_receipt_linked_disposal_funding_keeps_both_actions_paused():
-    from test_loop_domain import evidence, ref
+    from support.evidence import evidence, ref
 
     from agent_pipeline.contracts import Ok
 
     text = "On 14 May 2026 sell the GIA in full and use the pending proceeds to fund the ISA."
-    facts = domain.CaseFacts(
+    facts = models.CaseFacts(
         effective_date="2026-05-14",
         actions=[
-            domain.Action(
+            models.Action(
                 action_id="sale",
                 kind="dispose",
                 source_account_id="GIA",
                 extent="full",
                 refs=ref(text),
             ),
-            domain.Action(
+            models.Action(
                 action_id="fund",
                 kind="contribute",
                 status="conditional",
@@ -105,7 +105,7 @@ def test_receipt_linked_disposal_funding_keeps_both_actions_paused():
             ),
         ],
         receipts=[
-            domain.Receipt(
+            models.Receipt(
                 receipt_id="PROCEEDS",
                 description="Pending GIA sale proceeds",
                 status="pending",

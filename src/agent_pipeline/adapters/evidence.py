@@ -1,16 +1,13 @@
 """Read-only evidence adapters for one isolated client directory."""
 
 import hashlib
-import io
-import json
 import os
 import stat
-from decimal import Decimal
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Literal
 from xml.etree import ElementTree as ET
-from zipfile import BadZipFile, ZipFile
+from zipfile import BadZipFile
 
 from docx.image.exceptions import (
     InvalidImageStreamError,
@@ -19,7 +16,8 @@ from docx.image.exceptions import (
 )
 from docx.image.image import Image
 
-from .contracts import (
+from agent_pipeline.adapters.evidence_readers import read_docx, read_json, read_text
+from agent_pipeline.contracts import (
     Err,
     EvidenceBlock,
     EvidenceBundle,
@@ -36,7 +34,6 @@ MAX_SOURCE_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
 MAX_FILES = 500
 MAX_IMAGE_PIXELS = 40_000_000
-W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 IMAGE_SCHEMA = {
     "type": "object",
     "properties": {"text": {"type": "string"}, "complete": {"type": "boolean"}},
@@ -98,19 +95,6 @@ def _source_bytes(path: Path, root: Path) -> bytes:
         ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink):
             raise ValueError("Source changed during read")
         return raw
-
-
-def _json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("Duplicate JSON field")
-        result[key] = value
-    return result
-
-
-def _invalid_constant(value: str) -> None:
-    raise ValueError("Non-finite JSON value")
 
 
 def _inventory_paths(client_dir: Path) -> Result[list[Path], PipelineError]:
@@ -180,95 +164,6 @@ def _role(text: str) -> Literal["evidence", "guidance", "excluded"]:
         return "excluded"
     # Unknown content is retained for extraction; a filename never determines relevance.
     return "evidence"
-
-
-def _paragraph_text(node: ET.Element) -> str:
-    parts = []
-    for element in node.iter():
-        if element.tag == W + "t":
-            parts.append(element.text or "")
-        elif element.tag == W + "tab":
-            parts.append("\t")
-        elif element.tag in (W + "br", W + "cr"):
-            parts.append("\n")
-    return "".join(parts).strip()
-
-
-def _docx(raw: bytes) -> tuple[list[tuple[str, str]], list[str]]:
-    with ZipFile(io.BytesIO(raw)) as archive:
-        infos = archive.infolist()
-        if sum(i.file_size for i in infos) > MAX_TOTAL_BYTES:
-            raise ValueError("Expanded document exceeds size limit")
-        for info in infos:
-            name = PurePosixPath(info.filename)
-            if name.is_absolute() or ".." in name.parts or "\\" in info.filename:
-                raise ValueError("Unsafe archive member")
-        xml = archive.read("word/document.xml")
-        if b"<!DOCTYPE" in xml or b"<!ENTITY" in xml:
-            raise ValueError("Unsupported XML declarations")
-        root = ET.fromstring(xml)
-        body = root.find(W + "body")
-        if body is None:
-            raise ValueError("Missing document body")
-        issues = []
-        unsupported = {
-            W + tag
-            for tag in (
-                "drawing",
-                "pict",
-                "object",
-                "altChunk",
-                "sdt",
-                "ins",
-                "del",
-                "txbxContent",
-                "commentReference",
-                "commentRangeStart",
-            )
-        }
-        if any(node.tag in unsupported for node in root.iter()) or any(
-            info.filename.startswith(
-                (
-                    "word/media/",
-                    "word/embeddings/",
-                    "word/header",
-                    "word/footer",
-                    "word/footnotes",
-                    "word/endnotes",
-                    "word/comments",
-                )
-            )
-            for info in infos
-        ):
-            issues.append("unsupported_embedded_content")
-        blocks = []
-        paragraph_count = table_count = 0
-        for node in body:
-            if node.tag == W + "p":
-                paragraph_count += 1
-                text = _paragraph_text(node)
-                if text:
-                    blocks.append((f"body/paragraph[{paragraph_count}]", text))
-            elif node.tag == W + "tbl":
-                table_count += 1
-                for index, row in enumerate(node.findall(W + "tr"), 1):
-                    cells = [
-                        "\n".join(_paragraph_text(p) for p in cell.iter(W + "p"))
-                        for cell in row.findall(W + "tc")
-                    ]
-                    if any(cells):
-                        blocks.append(
-                            (
-                                f"body/table[{table_count}]/row[{index}]",
-                                " | ".join(cells),
-                            )
-                        )
-            elif (
-                node.tag != W + "sectPr"
-                and "unsupported_embedded_content" not in issues
-            ):
-                issues.append("unsupported_embedded_content")
-        return blocks, issues
 
 
 def _block(
@@ -363,28 +258,13 @@ def load_sources(
             parts: list[tuple[str, str]] = []
             issues: list[str] = []
             if suffix == ".docx":
-                parts, issues = _docx(raw)
+                parts, issues = read_docx(raw, MAX_TOTAL_BYTES)
             elif suffix == ".json":
-                text = raw.decode("utf-8-sig")
-                data = json.loads(
-                    text,
-                    parse_float=Decimal,
-                    object_pairs_hook=_json_object,
-                    parse_constant=_invalid_constant,
-                )
-                records = data if isinstance(data, list) else [data]
-                if not all(isinstance(item, dict) for item in records):
-                    return _error("invalid_source", source)
+                text, records = read_json(raw)
                 databases.extend(records)
                 parts = [("$", text)]
             elif suffix in {".md", ".txt", ".csv", ".tsv"}:
-                parts = [
-                    (f"line[{number}]", line)
-                    for number, line in enumerate(
-                        raw.decode("utf-8-sig").splitlines(), 1
-                    )
-                    if line.strip()
-                ]
+                parts = read_text(raw)
             elif suffix in {".png", ".jpg", ".jpeg"}:
                 picture = Image.from_blob(raw)
                 if picture.px_width * picture.px_height > MAX_IMAGE_PIXELS:

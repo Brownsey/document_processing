@@ -1,7 +1,7 @@
 import pytest
 
-from agent_pipeline.evaluation import _action_matches
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.evaluation.actions import _action_matches
+from agent_pipeline.reporting.rendering import render_slot
 
 
 @pytest.mark.parametrize("identifier", ["NEW-ACCOUNT", "OPEN-FUND", "opaque_42"])
@@ -208,7 +208,7 @@ def test_affirmative_modal_advice_preserves_negation(verb, kind):
     "destinations", [["ONE-ISA"], ["ONE-ISA", "TWO-ISA"], ["ONE-ISA", "OTHER-ISA"]]
 )
 def test_extraction_contribution_checks_each_recipient_identity(destinations):
-    from agent_pipeline.evaluation import score_report
+    from agent_pipeline.evaluation.scoring import score_report
 
     expected = {
         "tax": False,
@@ -243,7 +243,7 @@ def test_extraction_contribution_checks_each_recipient_identity(destinations):
 
 
 def test_rationale_receives_only_relevant_account_types_and_stated_purpose():
-    from agent_pipeline.workflow import select_facts
+    from agent_pipeline.pipeline.prompt_inputs import select_facts
 
     facts = {
         "accounts": [
@@ -292,7 +292,7 @@ def test_rationale_receives_only_relevant_account_types_and_stated_purpose():
     ],
 )
 def test_review_concepts_accept_plural_but_still_require_confirmation(sentence, passes):
-    from agent_pipeline.evaluation import score_report
+    from agent_pipeline.evaluation.scoring import score_report
 
     result = score_report(
         "## Recommendations\n" + sentence,
@@ -317,7 +317,7 @@ def test_charge_questions_stay_out_of_recommendation_inputs_without_losing_fee_c
 ):
     from copy import deepcopy
 
-    from agent_pipeline.workflow import select_facts
+    from agent_pipeline.pipeline.prompt_inputs import select_facts
 
     facts = {
         "narratives": [

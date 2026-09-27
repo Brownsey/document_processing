@@ -1,8 +1,8 @@
-from agent_pipeline.evaluation import _is_action_claim
+from agent_pipeline.evaluation.actions import _is_action_claim
 
 
 def test_grouped_scope_aliases_apply_only_to_introduction():
-    from agent_pipeline.evaluation import score_report
+    from agent_pipeline.evaluation.scoring import score_report
 
     expected = {
         "tax": False,

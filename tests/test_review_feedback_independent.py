@@ -1,12 +1,13 @@
 """Independent wrapper and planned-row checks for review-feedback corrections."""
 
 import pytest
-from test_loop_domain import evidence, ref
+from support.evidence import evidence, ref
 
 from agent_pipeline.contracts import Ok
-from agent_pipeline.domain import CaseFacts, reconcile
-from agent_pipeline.evaluation import score_report
-from agent_pipeline.rendering import render_slot
+from agent_pipeline.evaluation.scoring import score_report
+from agent_pipeline.reporting.rendering import render_slot
+from agent_pipeline.rules.domain import reconcile
+from agent_pipeline.rules.models import CaseFacts
 
 
 @pytest.mark.parametrize(

@@ -4,11 +4,11 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from test_repair_diagnostics import RepairProvider
-from test_workflow import CaseProvider, configured_case
+from support.workflow import CaseProvider, RepairProvider, configured_case
 
 from agent_pipeline import workflow
 from agent_pipeline.contracts import Err, ModelReply, Ok
+from agent_pipeline.reporting import diagnostics
 
 
 @pytest.mark.parametrize("kind", ["facts", "narrative", "shape", "reconcile"])
@@ -55,14 +55,14 @@ def test_optional_diagnostic_failure_is_visible_and_does_not_block_repaired_repo
     tmp_path, monkeypatch
 ):
     client, config, output, _ = configured_case(tmp_path)
-    atomic = workflow._atomic
+    atomic = diagnostics.atomic_write
 
     def fail_diagnostic(path, text):
         if "_repair_" in path.name:
             raise PermissionError("Diagnostic directory denied")
         return atomic(path, text)
 
-    monkeypatch.setattr(workflow, "_atomic", fail_diagnostic)
+    monkeypatch.setattr(diagnostics, "atomic_write", fail_diagnostic)
     result = workflow.run_generation(
         client_dir=client,
         config_path=config,
@@ -88,7 +88,7 @@ def test_same_clock_value_cannot_overwrite_previous_run_diagnostic(
         def now(tz):
             return datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
 
-    monkeypatch.setattr(workflow, "datetime", FixedClock)
+    monkeypatch.setattr(diagnostics, "datetime", FixedClock)
     run_ids = []
     for _ in range(2):
         result = workflow.run_generation(

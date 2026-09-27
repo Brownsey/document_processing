@@ -1,6 +1,6 @@
 ## Prompt rewrite — first pass
 
-**Goal:** produce a clearer prompt baseline for user review before MLflow optimisation. Rewrite active prompts; keep models, schemas, selectors, business rules and evaluation criteria unchanged. Report any required code/config changes separately.
+**Goal:** produce a clearer prompt baseline for user review before comparing it with the current configuration. Rewrite active prompts; keep models, schemas, selectors, business rules and evaluation criteria unchanged. Report any required code/config changes separately.
 
 **Prompt brevity:** Use the fewest words that preserve all required data, logic, constraints and useful insight. Remove repetition and filler. Keep wording explicit and readable; reject shortening that introduces ambiguity or weakens output quality.
 
@@ -55,4 +55,4 @@ Cover extraction, section inclusion, investigation and validation as well as nar
 
 Return proposed prompts, a readable diff and a short reason for each change. Separate prompt changes from required implementation changes.
 
-Mark the candidate **PENDING USER REVIEW**. Evaluate it on Luna across all four clients, present results and unresolved issues, then use the reviewed version as the MLflow baseline.
+Mark the candidate **PENDING USER REVIEW**. Evaluate it on Luna across all four clients, present results and unresolved issues, then use the reviewed version as the next comparison baseline.

@@ -6,9 +6,10 @@ from dataclasses import asdict
 
 import httpx
 import pytest
-from openai import OpenAI
+from support.provider import VALUE_SCHEMA as SCHEMA
+from support.provider import create_offline_provider
 
-from agent_pipeline import providers
+from agent_pipeline.adapters import provider_payloads, providers
 from agent_pipeline.contracts import (
     ConfigError,
     Err,
@@ -16,13 +17,6 @@ from agent_pipeline.contracts import (
     Ok,
     ProviderError,
 )
-
-SCHEMA = {
-    "type": "object",
-    "properties": {"value": {"type": "string"}},
-    "required": ["value"],
-    "additionalProperties": False,
-}
 
 
 def payload(**changes):
@@ -60,18 +54,10 @@ def offline(monkeypatch, tmp_path):
             return answer
         return httpx.Response(200, json=answer)
 
-    def factory(**settings):
-        assert settings["max_retries"] == 0
-        return OpenAI(
-            **settings,
-            http_client=httpx.Client(transport=httpx.MockTransport(transport)),
-        )
-
-    monkeypatch.setattr(providers, "OpenAI", factory)
-    monkeypatch.setattr(providers.time, "sleep", lambda _: None)
-    result = providers.create_provider(api_key="test-independent", cache_dir=tmp_path)
-    assert isinstance(result, Ok)
-    return result.value, requests, replies
+    provider = create_offline_provider(
+        monkeypatch, transport, api_key="test-independent", cache_dir=tmp_path
+    )
+    return provider, requests, replies
 
 
 def complete(provider, **changes):
@@ -87,7 +73,7 @@ def complete(provider, **changes):
 
 
 def test_actual_image_task_reuses_validated_cache(offline):
-    from agent_pipeline.evidence import IMAGE_SCHEMA
+    from agent_pipeline.adapters.evidence import IMAGE_SCHEMA
 
     provider, requests, replies = offline
     answer = payload()
@@ -100,12 +86,12 @@ def test_actual_image_task_reuses_validated_cache(offline):
     assert provider.approve_cache(first.value)
     assert isinstance(complete(provider, task="read_image", schema=IMAGE_SCHEMA), Ok)
     assert len(requests) == 1
-    assert provider.records[-1]["cost_status"] == "not_billed"
+    assert provider.records[-1]["usage"] == {}
 
 
 def test_workflow_execution_wrapper_preserves_validated_image_cache(offline):
-    from agent_pipeline.evidence import _read_image
-    from agent_pipeline.workflow import BudgetPort
+    from agent_pipeline.adapters.evidence import _read_image
+    from agent_pipeline.pipeline.prompting import ModelSession
 
     provider, requests, replies = offline
     answer = payload()
@@ -115,7 +101,7 @@ def test_workflow_execution_wrapper_preserves_validated_image_cache(offline):
     replies.extend([answer, answer])
     raw = b"\x89PNG\r\n\x1a\nimage bytes"
     digest = hashlib.sha256(raw).hexdigest()
-    port = BudgetPort(provider)
+    port = ModelSession(provider)
     for _ in range(2):
         result = _read_image(raw, "scan.png", digest, "independent", port)
         assert isinstance(result, Ok)
@@ -126,7 +112,7 @@ def test_workflow_execution_wrapper_preserves_validated_image_cache(offline):
     "data", [{"text": "partial", "complete": False}, {"text": " ", "complete": True}]
 )
 def test_unresolved_ocr_never_becomes_reusable_cache(offline, data):
-    from agent_pipeline.evidence import IMAGE_SCHEMA
+    from agent_pipeline.adapters.evidence import IMAGE_SCHEMA
 
     provider, requests, replies = offline
     incomplete = payload()
@@ -202,7 +188,7 @@ def test_key_covers_source_schema_model_and_provider_code(offline, monkeypatch):
     assert isinstance(complete(provider, context={"source_hash": "two"}), Ok)
     assert isinstance(complete(provider, instructions="Changed instructions"), Ok)
     assert isinstance(complete(provider, schema={**SCHEMA, "title": "Changed"}), Ok)
-    provider.settings["model"] = "gpt-6-astra"
+    provider.settings["model"] = "another-model"
     assert isinstance(complete(provider), Ok)
     provider.settings["reasoning_effort"] = "high"
     assert isinstance(complete(provider), Ok)
@@ -221,12 +207,25 @@ def test_key_covers_source_schema_model_and_provider_code(offline, monkeypatch):
     assert len(requests) == 8
 
 
-def test_unapproved_extraction_is_not_reused_or_persisted(offline):
+@pytest.mark.parametrize("module", ["providers.py", "provider_payloads.py"])
+def test_changed_provider_module_invalidates_approved_cache(
+    offline, monkeypatch, module
+):
     provider, requests, _ = offline
+    first = complete(provider)
+    assert isinstance(first, Ok)
+    assert provider.approve_cache(first.value)
     assert isinstance(complete(provider), Ok)
+    assert len(requests) == 1
+    original_read = providers.Path.read_bytes
+
+    def changed_code(path):
+        content = original_read(path)
+        return content + b"\n# changed" if path.name == module else content
+
+    monkeypatch.setattr(providers.Path, "read_bytes", changed_code)
     assert isinstance(complete(provider), Ok)
     assert len(requests) == 2
-    assert list(provider.cache_dir.glob("*.json")) == []
 
 
 def test_approval_is_specific_and_acceptance_marker_required(offline):
@@ -248,7 +247,7 @@ def test_approval_is_specific_and_acceptance_marker_required(offline):
     assert len(requests) == 4
 
 
-def test_connection_failure_is_bounded_safe_and_unknown_cost(offline):
+def test_connection_failure_is_bounded_safe_and_records_no_tokens(offline):
     provider, requests, replies = offline
     replies.extend([httpx.ConnectError("private client text")] * 3)
     result = complete(provider)
@@ -256,7 +255,7 @@ def test_connection_failure_is_bounded_safe_and_unknown_cost(offline):
     assert result.error.code == "connection"
     assert result.error.retryable is True
     assert len(requests) == len(provider.records) == 3
-    assert all(record["cost_status"] == "unknown" for record in provider.records)
+    assert all(record["usage"] == {} for record in provider.records)
     assert "private client text" not in json.dumps(asdict(result.error))
 
 
@@ -274,22 +273,26 @@ def test_unknown_provider_and_credentials_never_construct_client(monkeypatch, se
     assert isinstance(result.error, ConfigError)
 
 
-def test_cache_write_and_read_pricing_are_estimates():
-    cost = providers._cost(
+def test_cache_write_and_read_token_usage_is_preserved():
+    usage = provider_payloads.normalize_usage(
         {
-            "input_tokens": 1000,
-            "cached_input_tokens": 200,
-            "cache_write_tokens": 100,
-            "output_tokens": 50,
-        },
-        "openai",
-        "gpt-6-luna",
-        "default",
+            "usage": {
+                "prompt_tokens": 1000,
+                "prompt_tokens_details": {
+                    "cached_tokens": 200,
+                    "cache_creation_tokens": 100,
+                },
+                "completion_tokens": 50,
+            }
+        }
     )
-    assert cost == pytest.approx(
-        (700 * 0.10 + 200 * 0.01 + 100 * 0.125 + 50 * 0.50) / 1_000_000
-    )
-    assert providers._cost({}, "openai", "gpt-6-luna", "default") is None
+    assert usage == {
+        "input_tokens": 1000,
+        "cached_input_tokens": 200,
+        "cache_write_tokens": 100,
+        "output_tokens": 50,
+        "reasoning_tokens": 0,
+    }
 
 
 def test_cli_explicit_openrouter_selection_has_no_fallback_or_network(monkeypatch):
@@ -333,7 +336,7 @@ def test_cli_explicit_openrouter_selection_has_no_fallback_or_network(monkeypatc
 
 
 def test_workflow_deadline_is_shared_across_adapter_retries(offline, monkeypatch):
-    from agent_pipeline.workflow import BudgetPort
+    from agent_pipeline.pipeline.prompting import ModelSession
 
     provider, requests, replies = offline
     now = [100.0]
@@ -347,7 +350,7 @@ def test_workflow_deadline_is_shared_across_adapter_retries(offline, monkeypatch
         return httpx.ConnectError("private detail")
 
     replies.extend([transient, payload()])
-    port = BudgetPort(provider, timeout=2)
+    port = ModelSession(provider, timeout=2)
     result = complete(port)
     assert isinstance(result, Ok)
     assert [request.extensions["timeout"]["read"] for request in requests] == [2, 0.5]
@@ -358,7 +361,7 @@ def test_workflow_deadline_is_shared_across_adapter_retries(offline, monkeypatch
 
 
 def test_permanent_error_preserved_when_response_crosses_deadline(offline, monkeypatch):
-    from agent_pipeline.workflow import BudgetPort
+    from agent_pipeline.pipeline.prompting import ModelSession
 
     provider, requests, replies = offline
     now = [100.0]
@@ -369,7 +372,7 @@ def test_permanent_error_preserved_when_response_crosses_deadline(offline, monke
         return httpx.Response(401, json={"error": {"message": "private detail"}})
 
     replies.append(late_authentication)
-    result = complete(BudgetPort(provider, timeout=2))
+    result = complete(ModelSession(provider, timeout=2))
     assert isinstance(result, Err)
     assert isinstance(result.error, ProviderError)
     assert result.error.code == "authentication"

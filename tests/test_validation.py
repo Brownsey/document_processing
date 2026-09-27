@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.parametrize("extra", ["", "\n### Unexpected heading"])
 def test_assembly_counts_headings_only_at_line_start(extra):
-    from agent_pipeline.validation import validate_assembly
+    from agent_pipeline.pipeline.validation import validate_assembly
 
     sections = [{"title": "Holdings", "content": "Portfolio # 1"}]
     report = "# Report\n\n## Holdings\n\nPortfolio # 1" + extra
@@ -17,7 +17,7 @@ def test_assembly_counts_headings_only_at_line_start(extra):
 def test_sourced_account_names_do_not_block_generation(tmp_path, name):
     import json
 
-    from test_workflow import CaseProvider, configured_case
+    from support.workflow import CaseProvider, configured_case
 
     from agent_pipeline.contracts import Ok
     from agent_pipeline.workflow import run_generation
@@ -46,7 +46,7 @@ def test_sourced_account_names_do_not_block_generation(tmp_path, name):
     ],
 )
 def test_sourced_literals_preserve_phrase_structure_checks(text, literal):
-    from agent_pipeline.validation import validate_slot
+    from agent_pipeline.pipeline.validation import validate_slot
 
     assert validate_slot(text, "phrase", literal_phrases=[literal])
 
@@ -62,13 +62,13 @@ def test_sourced_literals_preserve_phrase_structure_checks(text, literal):
     ],
 )
 def test_slot_rejects_whole_report_and_insertion_requests(text, kind):
-    from agent_pipeline.validation import validate_slot
+    from agent_pipeline.pipeline.validation import validate_slot
 
     assert validate_slot(text, kind, template="We recommend the following:\n<<slot>>")
 
 
 def test_recommendation_explanation_rejects_amounts_and_new_actions():
-    from agent_pipeline.validation import validate_slot
+    from agent_pipeline.pipeline.validation import validate_slot
 
     assert validate_slot(
         "Transfer £20,000 from your ISA to cash.",
