@@ -24,28 +24,42 @@ SCHEMA = {
 }
 
 
-def response(text='{"value":"supported"}', **overrides):
+def test_decimal_schema_uses_supported_wire_pattern_and_keeps_local_validation():
+    from agent_pipeline.domain import CaseFacts
+
+    original = CaseFacts.model_json_schema()
+    wire = providers._strict_schema(original)
+    assert "(?!" not in json.dumps(wire)
+    assert "(?!" in json.dumps(original)
+    decimal_schema = wire["$defs"]["Fee"]["properties"]["rate_percent"]["anyOf"][1]
+    import jsonschema
+
+    jsonschema.validate("12.50", decimal_schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate("not-a-number", decimal_schema)
+
+
+def response(
+    text='{"value":"supported"}', *, finish_reason="stop", refusal=None, **overrides
+):
     return {
-        "id": "resp_offline",
-        "object": "response",
-        "created_at": 1,
-        "status": "completed",
+        "id": "chat_offline",
+        "object": "chat.completion",
+        "created": 1,
         "model": "gpt-6-luna",
         "service_tier": "default",
-        "output": [
+        "choices": [
             {
-                "id": "msg_1",
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [{"type": "output_text", "text": text, "annotations": []}],
+                "index": 0,
+                "finish_reason": finish_reason,
+                "message": {"role": "assistant", "content": text, "refusal": refusal},
             }
         ],
         "usage": {
-            "input_tokens": 1000,
-            "output_tokens": 100,
-            "input_tokens_details": {"cached_tokens": 100},
-            "output_tokens_details": {"reasoning_tokens": 20},
+            "prompt_tokens": 1000,
+            "completion_tokens": 100,
+            "prompt_tokens_details": {"cached_tokens": 100},
+            "completion_tokens_details": {"reasoning_tokens": 20},
             "total_tokens": 1100,
         },
         **overrides,
@@ -60,6 +74,7 @@ def adapter(monkeypatch, replies, **settings):
             {
                 **json.loads(request.content),
                 "_http_timeout": request.extensions.get("timeout"),
+                "_path": request.url.path,
             }
         )
         reply = replies.pop(0)
@@ -113,14 +128,40 @@ def test_structured_success_records_estimated_usage_and_separates_instructions(
     result = complete(provider)
     assert isinstance(result, Ok)
     assert result.value.data == {"value": "supported"}
-    assert requests[0]["instructions"] == "Extract facts"
-    assert requests[0]["text"]["format"]["schema"] == SCHEMA
+    assert requests[0]["_path"] == "/v1/chat/completions"
+    assert requests[0]["messages"][0]["content"] == "Extract facts"
+    assert requests[0]["max_completion_tokens"] == 20000
+    assert requests[0]["reasoning_effort"] == "low"
+    assert requests[0]["response_format"]["json_schema"]["schema"] == SCHEMA
     assert requests[0]["store"] is False
     record = provider.records[0]
     assert record["estimated_cost_usd"] == pytest.approx(0.000141)
     assert record["cost_status"] == "estimated"
     assert record["task"] == "extract"
     assert "test-key" not in json.dumps(provider.settings)
+
+
+def test_spend_cap_blocks_before_network_and_persists_charges(monkeypatch, tmp_path):
+    from decimal import Decimal
+
+    from agent_pipeline.budget import MoneyBudget
+
+    ledger = tmp_path / "spend.sqlite3"
+    provider, requests = adapter(
+        monkeypatch, [response()], cap_usd=Decimal("1"), ledger_path=ledger
+    )
+    assert isinstance(complete(provider), Ok)
+    spent, reserved = MoneyBudget(ledger, Decimal("1")).totals()
+    assert spent > 0 and reserved == 0
+    blocked, no_requests = adapter(
+        monkeypatch,
+        [],
+        cap_usd=Decimal("0.000001"),
+        ledger_path=tmp_path / "blocked.sqlite3",
+    )
+    result = complete(blocked)
+    assert isinstance(result, Err) and result.error.code == "spend_limit"
+    assert no_requests == []
 
 
 @pytest.mark.parametrize(
@@ -191,18 +232,8 @@ def test_transient_timeout_then_success_records_both_attempts(monkeypatch):
         response("not json"),
         response('{"value":42}'),
         response(""),
-        response(status="incomplete"),
-        response(
-            output=[
-                {
-                    "type": "message",
-                    "id": "msg",
-                    "role": "assistant",
-                    "status": "completed",
-                    "content": [{"type": "refusal", "refusal": "private refusal"}],
-                }
-            ]
-        ),
+        response(finish_reason="length"),
+        response(refusal="private refusal"),
     ],
 )
 def test_invalid_refused_incomplete_output_never_cached(monkeypatch, tmp_path, reply):
@@ -232,7 +263,7 @@ def test_cache_key_changes_with_context_prompt_schema_and_image(monkeypatch, tmp
     image.write_bytes(b"\x89PNG\r\n\x1a\nchanged")
     assert isinstance(complete(provider, image_path=image), Ok)
     assert len(requests) == 5
-    assert requests[-1]["input"][0]["content"][1]["image_url"].startswith(
+    assert requests[-1]["messages"][1]["content"][1]["image_url"]["url"].startswith(
         "data:image/png;base64,"
     )
 
@@ -344,15 +375,12 @@ def test_unknown_model_and_missing_usage_are_unknown_cost(monkeypatch):
     assert provider.records[0]["usage"]["input_tokens"] == 1000
 
 
-def test_reasoning_items_do_not_obscure_structured_message(monkeypatch):
-    reply = response()
-    reply["output"].insert(
-        0, {"id": "rs_1", "type": "reasoning", "summary": [], "content": None}
-    )
-    provider, _ = adapter(monkeypatch, [reply])
+def test_reasoning_usage_does_not_obscure_structured_message(monkeypatch):
+    provider, _ = adapter(monkeypatch, [response()])
     result = complete(provider)
     assert isinstance(result, Ok)
     assert result.value.data == {"value": "supported"}
+    assert result.value.usage["reasoning_tokens"] == 20
 
 
 def test_malformed_endpoint_is_config_error():

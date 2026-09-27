@@ -84,6 +84,37 @@ def test_valid_report_and_paraphrase_pass(report, case):
 
 
 @pytest.mark.parametrize(
+    ("phrase", "passes"),
+    [
+        ("deferred-payment", True),
+        ("deferred payment", True),
+        ("deferredpayment", False),
+        ("deferred", False),
+        ("unrelated payment", False),
+    ],
+)
+def test_required_prose_concepts_accept_word_hyphens_but_not_missing_words(
+    report, case, phrase, passes
+):
+    case["required_concepts"] = [["deferred payment"]]
+    report = report.replace("You seek growth with moderate risk.", phrase + ".")
+    assert score(report, case)["passed"] is passes
+
+
+def test_prose_hyphen_matching_does_not_loosen_identifiers_or_actions(report, case):
+    case["required_concepts"] = [["deferred payment"]]
+    report = report.replace(
+        "You seek growth with moderate risk.", "A deferred-payment is recorded."
+    )
+    case["accounts"][0]["aliases"] = ["A-ISA"]
+    report = report.replace("your Alpha ISA", "your A-ISA")
+    assert score(report, case)["passed"]
+    assert not score(report.replace("A-ISA", "A ISA"), case)["passed"]
+    changed_action = report.replace("into Alpha ISA", "into Alpha-ISA")
+    assert not score(changed_action, case)["passed"]
+
+
+@pytest.mark.parametrize(
     "old,new",
     [
         (

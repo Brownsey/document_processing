@@ -29,29 +29,43 @@ class PipelineError:
     retryable: bool = False
     details: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def manifest_status(self) -> str:
+        return "failed"
 
+
+@dataclass(frozen=True)
 class ConfigError(PipelineError):
-    pass
+    stage: str = "config"
 
 
+@dataclass(frozen=True)
 class InputError(PipelineError):
-    pass
+    stage: str = "input"
 
 
+@dataclass(frozen=True)
 class ProviderError(PipelineError):
-    pass
+    stage: str = "provider"
 
 
+@dataclass(frozen=True)
 class ExtractionError(PipelineError):
-    pass
+    stage: str = "extraction"
 
 
+@dataclass(frozen=True)
 class ExecutionLimitExceeded(PipelineError):
-    pass
+    stage: str = "execution"
 
 
+@dataclass(frozen=True)
 class ReportBlocked(PipelineError):
-    pass
+    stage: str = "report"
+
+    @property
+    def manifest_status(self) -> str:
+        return "blocked"
 
 
 @dataclass(frozen=True)

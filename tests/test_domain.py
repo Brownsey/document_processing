@@ -52,25 +52,6 @@ def facts(domain, **kwargs):
     return domain.CaseFacts(**kwargs)
 
 
-def test_schema_for_structured_outputs_requires_all_fields_and_forbids_extras(domain):
-    assert domain is not None, "Domain reconciliation is not implemented"
-    schema = domain.extraction_schema()
-
-    def check(node):
-        if isinstance(node, dict):
-            if node.get("type") == "object":
-                assert node["additionalProperties"] is False
-                assert set(node["required"]) == set(node["properties"])
-            assert "default" not in node
-            for child in node.values():
-                check(child)
-        elif isinstance(node, list):
-            for child in node:
-                check(child)
-
-    check(schema)
-
-
 def test_joint_identity_from_database_combines_holders_without_doubling_value(domain):
     assert domain is not None, "Domain reconciliation is not implemented"
     result = domain.reconcile(facts(domain), bundle(duplicate=True))

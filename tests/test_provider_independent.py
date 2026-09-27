@@ -27,28 +27,19 @@ SCHEMA = {
 
 def payload(**changes):
     return {
-        "id": "resp_independent",
-        "object": "response",
-        "created_at": 1,
-        "status": "completed",
+        "id": "chat_independent",
+        "object": "chat.completion",
+        "created": 1,
         "model": "gpt-6-luna",
         "service_tier": "default",
-        "output": [
+        "choices": [
             {
-                "id": "message",
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [
-                    {
-                        "type": "output_text",
-                        "text": '{"value":"fact"}',
-                        "annotations": [],
-                    }
-                ],
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": '{"value":"fact"}'},
             }
         ],
-        "usage": {"input_tokens": 100, "output_tokens": 10},
+        "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110},
         **changes,
     }
 
@@ -100,7 +91,7 @@ def test_actual_image_task_reuses_validated_cache(offline):
 
     provider, requests, replies = offline
     answer = payload()
-    answer["output"][0]["content"][0]["text"] = (
+    answer["choices"][0]["message"]["content"] = (
         '{"text":"visible text", "complete":true}'
     )
     replies.extend([answer, answer])
@@ -118,7 +109,7 @@ def test_workflow_execution_wrapper_preserves_validated_image_cache(offline):
 
     provider, requests, replies = offline
     answer = payload()
-    answer["output"][0]["content"][0]["text"] = (
+    answer["choices"][0]["message"]["content"] = (
         '{"text":"visible text", "complete":true}'
     )
     replies.extend([answer, answer])
@@ -139,7 +130,7 @@ def test_unresolved_ocr_never_becomes_reusable_cache(offline, data):
 
     provider, requests, replies = offline
     incomplete = payload()
-    incomplete["output"][0]["content"][0]["text"] = json.dumps(data)
+    incomplete["choices"][0]["message"]["content"] = json.dumps(data)
     replies.extend([incomplete, incomplete])
     complete(provider, task="read_image", schema=IMAGE_SCHEMA)
     complete(provider, task="read_image", schema=IMAGE_SCHEMA)
@@ -159,7 +150,9 @@ def test_dangling_local_schema_reference_fails_before_request(offline):
     assert requests == []
 
 
-@pytest.mark.parametrize("changes", [{"usage": "private client text"}, {"output": [7]}])
+@pytest.mark.parametrize(
+    "changes", [{"usage": "private client text"}, {"choices": [7]}]
+)
 def test_malformed_success_is_typed_safe_failure_and_metered(offline, changes, recwarn):
     provider, requests, replies = offline
     replies.append(payload(**changes))

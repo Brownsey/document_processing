@@ -14,6 +14,7 @@ import json
 import os
 import time
 from dataclasses import asdict, replace
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote
@@ -21,6 +22,7 @@ from urllib.parse import unquote
 import jsonschema
 from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError, OpenAI
 
+from agent_pipeline.budget import MoneyBudget, Prices
 from agent_pipeline.contracts import (
     ConfigError,
     Err,
@@ -34,7 +36,7 @@ from agent_pipeline.contracts import (
     Result,
 )
 
-CACHE_VERSION = "provider-v2-approved"
+CACHE_VERSION = "provider-v3-chat-approved"
 CACHE_TASKS = {
     "extract",
     "extraction",
@@ -45,6 +47,10 @@ CACHE_TASKS = {
     "read_image",
 }
 RATES = {"gpt-6-luna": (0.10, 0.01, 0.125, 0.50), "gpt-6-astra": (10, 1, 12.5, 50)}
+
+
+class _SpendLimitError(RuntimeError):
+    pass
 
 
 def _json(value: Any) -> str:
@@ -101,6 +107,10 @@ def _strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
     def visit(node: Any) -> None:
         if isinstance(node, dict):
             node.pop("default", None)
+            # Pydantic's Decimal regex uses lookahead, unsupported by the API.
+            # Keep the original schema for local validation of the reply.
+            if node.get("pattern") == r"^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$":
+                node["pattern"] = r"^[+-]?(\d+(\.\d*)?|\.\d+)$"
             if node.get("type") == "object":
                 node["additionalProperties"] = False
                 node["required"] = list(node.get("properties", {}))
@@ -144,25 +154,9 @@ def _usage(raw: dict[str, Any], provider: str) -> dict[str, Any]:
     usage = raw.get("usage") or {}
     if not isinstance(usage, dict):
         raise ValueError("Invalid usage shape")
-    input_key, output_key = (
-        ("input_tokens", "output_tokens")
-        if provider == "openai"
-        else ("prompt_tokens", "completion_tokens")
-    )
-    details = (
-        usage.get(
-            "input_tokens_details" if provider == "openai" else "prompt_tokens_details"
-        )
-        or {}
-    )
-    output_details = (
-        usage.get(
-            "output_tokens_details"
-            if provider == "openai"
-            else "completion_tokens_details"
-        )
-        or {}
-    )
+    input_key, output_key = "prompt_tokens", "completion_tokens"
+    details = usage.get("prompt_tokens_details") or {}
+    output_details = usage.get("completion_tokens_details") or {}
     if not isinstance(details, dict) or not isinstance(output_details, dict):
         raise ValueError("Invalid usage details")
     normalized = {
@@ -225,11 +219,16 @@ class Provider:
     """
 
     def __init__(
-        self, client: OpenAI, settings: dict[str, Any], cache_dir: Path | None
+        self,
+        client: OpenAI,
+        settings: dict[str, Any],
+        cache_dir: Path | None,
+        budget: MoneyBudget | None = None,
     ):
         self._client = client
         self.settings = settings
         self.cache_dir = cache_dir
+        self.budget = budget
         self.records: list[dict[str, Any]] = []
         self.fingerprint = _digest(settings)
         self._pending_cache: dict[str, tuple[Path, str]] = {}
@@ -448,6 +447,15 @@ class Provider:
                     return self._deadline_error()
             try:
                 raw = self._request(instructions, content, schema, timeout)
+            except _SpendLimitError:
+                self._record(task, attempt, started, "spend_limit", {}, model, tier)
+                return Err(
+                    ExecutionLimitExceeded(
+                        "spend_limit",
+                        "The local model spend limit was reached.",
+                        "provider",
+                    )
+                )
             except APIError as exc:
                 error = _provider_error(exc)
                 self._record(task, attempt, started, error.code, {}, model, tier)
@@ -516,25 +524,6 @@ class Provider:
         timeout: float,
     ) -> dict[str, Any]:
         options: dict[str, Any] = {"model": self.settings["model"], "timeout": timeout}
-        if self.settings["provider"] == "openai":
-            options.update(
-                instructions=instructions,
-                input=[{"role": "user", "content": content}],
-                store=False,
-                service_tier=self.settings["tier"],
-                max_output_tokens=self.settings["max_output_tokens"],
-                reasoning={"effort": self.settings["reasoning_effort"]},
-            )
-            if schema:
-                options["text"] = {
-                    "format": {
-                        "type": "json_schema",
-                        "name": "result",
-                        "strict": True,
-                        "schema": _strict_schema(schema),
-                    }
-                }
-            return self._client.responses.create(**options).model_dump(warnings=False)
         chat_content = [
             {"type": "text", "text": part["text"]}
             if part["type"] == "input_text"
@@ -546,8 +535,16 @@ class Provider:
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": chat_content},
             ],
-            max_tokens=self.settings["max_output_tokens"],
         )
+        if self.settings["provider"] == "openai":
+            options.update(
+                max_completion_tokens=self.settings["max_output_tokens"],
+                reasoning_effort=self.settings["reasoning_effort"],
+                service_tier=self.settings["tier"],
+                store=False,
+            )
+        else:
+            options["max_tokens"] = self.settings["max_output_tokens"]
         if schema:
             options["response_format"] = {
                 "type": "json_schema",
@@ -557,9 +554,47 @@ class Provider:
                     "schema": _strict_schema(schema),
                 },
             }
-        return self._client.chat.completions.create(**options).model_dump(
-            warnings=False
-        )
+        reservation = None
+        price = None
+        if self.budget is not None:
+            rates = RATES[self.settings["model"]]
+            price = Prices(Decimal(str(rates[0])) * 2, Decimal(str(rates[3])) * 2)
+            upper_bound = price.cost(
+                len(_json(options).encode("utf-8")) + 1000,
+                self.settings["max_output_tokens"],
+            )
+            try:
+                reservation = self.budget.reserve(upper_bound)
+            except RuntimeError as exc:
+                raise _SpendLimitError from exc
+        raw = None
+        overrun = False
+        try:
+            raw = self._client.chat.completions.create(**options).model_dump(
+                warnings=False
+            )
+        finally:
+            if (
+                reservation is not None
+                and self.budget is not None
+                and price is not None
+            ):
+                usage = raw.get("usage") if raw else None
+                actual = None
+                if (
+                    isinstance(usage, dict)
+                    and type(usage.get("prompt_tokens")) is int
+                    and type(usage.get("completion_tokens")) is int
+                    and usage["prompt_tokens"] >= 0
+                    and usage["completion_tokens"] >= 0
+                ):
+                    actual = price.cost(
+                        usage["prompt_tokens"], usage["completion_tokens"]
+                    )
+                overrun = self.budget.settle(reservation, actual)
+        if overrun:
+            raise _SpendLimitError
+        return raw
 
     def _parse(
         self,
@@ -570,36 +605,17 @@ class Provider:
         tier: str,
     ) -> Result[ModelReply, PipelineError]:
         try:
-            if self.settings["provider"] == "openai":
-                if raw.get("status") != "completed":
-                    return Err(
-                        ExtractionError(
-                            "incomplete_response",
-                            "Provider output is incomplete.",
-                            "provider",
-                        )
+            choice = raw["choices"][0]
+            if choice.get("finish_reason") != "stop":
+                return Err(
+                    ExtractionError(
+                        "incomplete_response",
+                        "Provider output is incomplete.",
+                        "provider",
                     )
-                parts = [
-                    part
-                    for item in raw.get("output", [])
-                    for part in (item.get("content") or [])
-                ]
-                refused = any(p.get("type") == "refusal" for p in parts)
-                text = "".join(
-                    p.get("text", "") for p in parts if p.get("type") == "output_text"
                 )
-            else:
-                choice = raw["choices"][0]
-                if choice.get("finish_reason") != "stop":
-                    return Err(
-                        ExtractionError(
-                            "incomplete_response",
-                            "Provider output is incomplete.",
-                            "provider",
-                        )
-                    )
-                refused = bool(choice["message"].get("refusal"))
-                text = choice["message"].get("content") or ""
+            refused = bool(choice["message"].get("refusal"))
+            text = choice["message"].get("content") or ""
             if refused or not text.strip():
                 return Err(
                     ExtractionError(
@@ -642,6 +658,8 @@ def create_provider(
     max_output_tokens: int = 20_000,
     tier: str = "default",
     reasoning_effort: str = "low",
+    cap_usd: Decimal | None = None,
+    ledger_path: Path | None = None,
     **extra: Any,
 ) -> Result[Provider, PipelineError]:
     """Validate local settings then construct an SDK client without network I/O."""
@@ -659,6 +677,16 @@ def create_provider(
         or tier != "default"
         or reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}
         or (model == "gpt-6-astra" and reasoning_effort == "none")
+        or (
+            cap_usd is not None
+            and (
+                not isinstance(cap_usd, Decimal)
+                or not cap_usd.is_finite()
+                or cap_usd <= 0
+                or provider != "openai"
+                or model not in RATES
+            )
+        )
     ):
         return Err(
             ConfigError(
@@ -712,10 +740,17 @@ def create_provider(
         client = OpenAI(
             api_key=credential, base_url=base_url, timeout=timeout, max_retries=0
         )
+        budget = (
+            MoneyBudget(ledger_path or Path(".local/paid-budget.sqlite3"), cap_usd)
+            if cap_usd is not None
+            else None
+        )
     except (APIError, ValueError, TypeError):
         return Err(
             ConfigError(
                 "client_setup", "Provider client could not be configured.", "provider"
             )
         )
-    return Ok(Provider(client, settings, Path(cache_dir) if cache_dir else None))
+    return Ok(
+        Provider(client, settings, Path(cache_dir) if cache_dir else None, budget)
+    )

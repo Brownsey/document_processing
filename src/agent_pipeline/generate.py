@@ -2,6 +2,7 @@
 
 import argparse
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -35,6 +36,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--cache-dir", type=Path, default=None)
+    parser.add_argument("--cap-usd", type=Decimal, default=Decimal("10"))
+    parser.add_argument(
+        "--ledger", type=Path, default=Path(".local/paid-budget.sqlite3")
+    )
     args = parser.parse_args(argv)
     if args.provider == "openrouter" and not args.model:
         parser.error("--provider openrouter requires an explicit --model")
@@ -51,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model or os.getenv("OPENAI_MODEL", "gpt-6-luna"),
         base_url=args.base_url,
         cache_dir=args.cache_dir,
+        cap_usd=args.cap_usd if args.provider == "openai" else None,
+        ledger_path=args.ledger,
     )
     provider = (
         _UnavailableProvider(selected.error)

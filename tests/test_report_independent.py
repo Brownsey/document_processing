@@ -476,7 +476,11 @@ def test_mixed_repairs_share_limits_invalidate_prose_and_approve_only_final_fact
         assert provider.approved == [provider.extractions[-1]]
         report = Path(result.value["output_path"]).read_text(encoding="utf-8")
         assert "Obsolete" not in report
-        assert "Maintaining flexibility" in report
+        # Reasons now feed the narrative slot rather than repeat in the action list.
+        assert (
+            result.value["facts"]["actions"][0]["rationale"]
+            == "Maintaining flexibility"
+        )
     else:
         assert isinstance(result, Err) and result.error.code == "unsupported_report"
         assert provider.approved == []

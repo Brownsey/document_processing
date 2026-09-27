@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 
@@ -791,6 +793,8 @@ def test_original_client_only_cli_keeps_defaults_and_loads_dotenv(
         "model": "offline-placeholder-model",
         "base_url": None,
         "cache_dir": None,
+        "cap_usd": Decimal("10"),
+        "ledger_path": Path(".local/paid-budget.sqlite3"),
     }
     assert calls["workflow"] == {
         "client_dir": Path("data/client_01_clean"),

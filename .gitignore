@@ -15,3 +15,5 @@ mlartifacts/
 *.db-wal
 .coverage
 htmlcov/
+/docs/
+/outputs/*.manifest.json

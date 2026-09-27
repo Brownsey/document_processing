@@ -23,7 +23,7 @@ from typing import Any
 
 from agent_pipeline.contracts import Err, InputError, Ok
 
-SCORER_VERSION = "source-reviewed-v1"
+SCORER_VERSION = "source-reviewed-v2-prose-hyphens"
 FCA = "This firm is authorised and regulated by the Financial Conduct Authority."
 RISK = "The value of investments can fall as well as rise and you may get back less than you invest. Past performance is not a guide to future returns."
 MONEY = re.compile(
@@ -55,11 +55,14 @@ def _normal(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("’", "'").replace("**", "")).strip().lower()
 
 
-def _contains(text: str, aliases: list[str]) -> bool:
-    return any(
-        re.search(r"(?<!\w)" + re.escape(_normal(a)) + r"(?!\w)", _normal(text))
-        for a in aliases
-    )
+def _contains(text: str, aliases: list[str], *, prose: bool = False) -> bool:
+    for alias in aliases:
+        pattern = re.escape(_normal(alias))
+        if prose:
+            pattern = pattern.replace(r"\ ", "[ -]")
+        if re.search(r"(?<!\w)" + pattern + r"(?!\w)", _normal(text)):
+            return True
+    return False
 
 
 def money_values(text: str) -> list[Decimal]:
@@ -101,11 +104,17 @@ def _is_action_claim(sentence: str) -> bool:
     if not predicate:
         return False
     prefix = text[: predicate.start()]
+    # A pending confirmation can refer to an agreed top-up as a noun.
+    # Later imperative/modal clauses still count, even inside a review marker.
+    if re.search(r"\b(?:confirm|verify)\b", prefix) and re.search(
+        r"\b(?:before|prior to) implementing the agreed\s+$", prefix
+    ):
+        return False
     return (
         not prefix.strip(" -*")
         or bool(
             re.search(
-                r"\b(?:recommend\w*|should|must|will|please|agree\w*|propos\w*|advise\w*|need to|do not|don't)\b",
+                r"\b(?:recommend\w*|should|must|will|please|agree\w*|propos\w*|advise\w*|need to|do not|don't|then)\b",
                 prefix,
             )
         )
@@ -250,7 +259,7 @@ def score_report(
         check(
             "accounts",
             f"introduction scope {account['id']}",
-            _contains(intro, account["aliases"]),
+            _contains(intro, account["aliases"] + account.get("scope_aliases", [])),
         )
     prose_background = "\n".join(
         line for line in background.splitlines() if not line.lstrip().startswith("|")
@@ -454,7 +463,9 @@ def score_report(
         check("actions", "no unauthorised disposal", allowed)
     for alternatives in expected.get("required_concepts", []):
         check(
-            "narrative", "required: " + alternatives[0], _contains(report, alternatives)
+            "narrative",
+            "required: " + alternatives[0],
+            _contains(report, alternatives, prose=True),
         )
     for funding in expected.get("funding", []):
         for sentence in sentences:

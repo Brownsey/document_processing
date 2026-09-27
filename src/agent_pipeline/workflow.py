@@ -29,7 +29,15 @@ from agent_pipeline.rendering import render_slot, taxable_disposals
 from agent_pipeline.validation import SHAPES, validate_assembly, validate_slot
 from document_formatter.formatting import format_document
 
-SELECTORS = {"introduction", "background", "recommendations", "tax", "fees", "all"}
+SELECTORS = {
+    "introduction",
+    "background",
+    "recommendations",
+    "rationale",
+    "tax",
+    "fees",
+    "all",
+}
 RENDERERS = {"scope", "holdings", "actions", "tax", "fees", "risk_warning"}
 
 
@@ -48,6 +56,7 @@ def validate_config(config: dict) -> Result[dict, PipelineError]:
             and "\n" not in config["document_title"]
         )
         for key in (
+            "tone_of_voice",
             "global_instructions",
             "extraction_prompt",
             "inclusion_prompt",
@@ -152,12 +161,18 @@ def _usage(provider) -> list[dict]:
 
 
 class BudgetPort:
-    """The run owns execution bounds; the adapter alone owns transport retries."""
+    """Apply run-wide tone and execution bounds; the adapter owns transport retries."""
 
     def __init__(
-        self, provider: ModelPort, *, timeout: float = 300, max_calls: int = 40
+        self,
+        provider: ModelPort,
+        *,
+        timeout: float = 300,
+        max_calls: int = 40,
+        tone_of_voice: str = "",
     ):
         self.provider = provider
+        self.tone_of_voice = tone_of_voice
         self.started = time.monotonic()
         self.timeout = timeout
         self.max_calls = max_calls
@@ -184,6 +199,15 @@ class BudgetPort:
                 )
             )
         self.calls += 1
+        if self.tone_of_voice:
+            kwargs["instructions"] = (
+                "Shared tone of voice (generated prose only):\n"
+                + self.tone_of_voice
+                + "\nTask contracts take precedence over style. Preserve verbatim transcription, "
+                "quotations, names, identifiers, figures, qualifiers and required JSON/schema values. "
+                "Do not change facts, decisions, conditions or output structure to suit the tone.\n\n"
+                + kwargs["instructions"]
+            )
         result = self.provider.complete(**kwargs)
         if isinstance(result, Err):
             return result
@@ -199,6 +223,69 @@ class BudgetPort:
 
 
 def select_facts(selector: str, facts: dict) -> dict:
+    recipient_names = list(
+        dict.fromkeys(
+            owner
+            for account in facts.get("accounts", []) + facts.get("planned_accounts", [])
+            if account["account_id"] in facts.get("requested_account_ids", [])
+            for owner in account.get("owners", [])
+        )
+    )
+
+    def narrative(item: dict) -> dict:
+        return {
+            "category": item["category"],
+            "text": re.sub(
+                r"(?:[£$€]|GBP\s*)\d[\d,.]*|\b\d+(?:\.\d+)?\s*%"
+                r"|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b(?!(?:19|20)\d{2}\b)\d{4,}(?:\.\d+)?\b"
+                r"|\b\d+(?:\.\d+)?\s*(?:thousand|million|billion|k)\b",
+                "[amount omitted]",
+                item["text"],
+                flags=re.I,
+            ),
+        }
+
+    if selector == "background":
+        return {
+            "recipient_names": recipient_names,
+            "narratives": [
+                narrative(item)
+                for item in facts.get("narratives", [])
+                if item.get("category")
+                in {"circumstance", "objective", "risk", "timing", "sensitivity"}
+                and not re.search(
+                    r"\b(?:charges?|costs?|next steps|confirm|disinvest|top.up)\b",
+                    item.get("text", ""),
+                    re.I,
+                )
+            ],
+        }
+    if selector == "rationale":
+        return {
+            "recipient_names": recipient_names,
+            "narratives": [
+                narrative(item)
+                for item in facts.get("narratives", [])
+                if item.get("category") in {"objective", "rationale", "charges_concern"}
+                or (
+                    item.get("category") == "sensitivity"
+                    and re.search(
+                        r"\b(?:charges?|costs?)\b", item.get("text", ""), re.I
+                    )
+                )
+            ],
+            "actions": [
+                {
+                    **({"kind": action["kind"]} if "kind" in action else {}),
+                    "rationale": narrative(
+                        {"category": "rationale", "text": action["rationale"]}
+                    )["text"],
+                }
+                for action in facts.get("actions", [])
+                if action.get("rationale")
+                and action.get("status", "agreed") in {"agreed", "conditional"}
+            ],
+        }
     common = {
         k: facts.get(k, []) for k in ("effective_date", "review_items", "conflicts")
     }
@@ -225,7 +312,12 @@ def select_facts(selector: str, facts: dict) -> dict:
     }
     if selector == "all":
         return facts
-    return common | {k: facts.get(k, []) for k in fields[selector]}
+    selected = common | {k: facts.get(k, []) for k in fields[selector]}
+    if selector == "recommendations":
+        selected["narratives"] = [
+            n for n in selected["narratives"] if n.get("category") != "exclusion"
+        ]
+    return selected
 
 
 def _slot_shape(spec: dict, name: str, template: str) -> str:
@@ -257,8 +349,42 @@ def _structured(
                 strict(child)
 
     strict(definition)
+    # Short, run-local labels avoid asking the model to copy 64-character hashes.
+    # Restore canonical IDs before reconciliation or publication.
+    aliases = (
+        {
+            block["id"]: f"e{index + 1}"
+            for index, block in enumerate(context.get("evidence", []))
+        }
+        if task == "extract"
+        else {}
+    )
+
+    def relabel(value, mapping):
+        if isinstance(value, dict):
+            return {
+                key: mapping.get(item, item)
+                if key == "evidence_id" and isinstance(item, str)
+                else relabel(item, mapping)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [relabel(item, mapping) for item in value]
+        return value
+
+    prompt_context = relabel(context, aliases)
+    for block in prompt_context.get("evidence", []):
+        block["id"] = aliases.get(block["id"], block["id"])
+    for retrieval in prompt_context.get("focused_evidence", []):
+        if retrieval.get("tool") in {"read", "search"}:
+            for block in retrieval.get("result", []):
+                block["id"] = aliases.get(block["id"], block["id"])
+
     reply = port.complete(
-        task=task, instructions=instructions, context=context, schema=definition
+        task=task,
+        instructions=instructions,
+        context=prompt_context,
+        schema=definition,
     )
     if isinstance(reply, Err):
         return reply
@@ -268,7 +394,9 @@ def _structured(
             if reply.value.data is not None
             else json.loads(reply.value.text)
         )
-        validated = schema.model_validate(data)
+        validated = schema.model_validate(
+            relabel(data, {v: k for k, v in aliases.items()})
+        )
         if task == "extract":
             port.latest_extraction_reply = reply.value
         return Ok(validated)
@@ -288,6 +416,23 @@ def _evidence_context(bundle: EvidenceBundle) -> dict:
         "internal_guidance": [asdict(b) for b in bundle.blocks if b.role == "guidance"],
         "source_inventory": bundle.inventory,
     }
+
+
+def _review_facts(value):
+    """Keep fact-to-source links; the review receives each complete source separately."""
+    if isinstance(value, list):
+        return [_review_facts(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: [
+                {"evidence_id": identifier}
+                for identifier in dict.fromkeys(ref["evidence_id"] for ref in item)
+            ]
+            if key in {"refs", "scope_refs"}
+            else _review_facts(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _investigate(facts, bundle: EvidenceBundle, port, config: dict, trace: list[dict]):
@@ -384,10 +529,10 @@ def _investigate(facts, bundle: EvidenceBundle, port, config: dict, trace: list[
     return Ok(retrieved)
 
 
-def _generate(config: dict, client_dir: Path, port, cache_dir, manifest: dict):
+def _generate(config: dict, client_dir: Path, port, manifest: dict):
     from agent_pipeline.evidence import load_sources
 
-    loaded = load_sources(client_dir, port, cache_dir)
+    loaded = load_sources(client_dir, port)
     if isinstance(loaded, Err):
         return loaded
     bundle = loaded.value
@@ -420,6 +565,29 @@ def _generate(config: dict, client_dir: Path, port, cache_dir, manifest: dict):
         manifest["inclusion"] = []
         result = _draft(config, bundle, port, manifest, context, fixed_facts, feedback)
         feedback = manifest.pop("_repair_feedback", None)
+        if (
+            isinstance(result, Err)
+            and isinstance(result.error, ExtractionError)
+            and result.error.stage == "reconcile"
+            and manifest["repair_counts"]["facts"] < 2
+        ):
+            feedback = [
+                {
+                    "code": result.error.code,
+                    "message": result.error.message,
+                    "details": result.error.details,
+                }
+            ]
+            manifest["repair_counts"]["facts"] += 1
+            manifest["repair_history"].append(
+                {
+                    "kind": "facts",
+                    "attempt": manifest["repair_counts"]["facts"],
+                    "error": result.error.code,
+                }
+            )
+            fixed_facts = None
+            continue
         if not isinstance(result, Err) or result.error.code != "unsupported_report":
             return result
         kind = result.error.details.get("issue_kind")
@@ -499,14 +667,6 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
             ReportBlocked(
                 "missing_scope",
                 "The report has no confirmed account scope.",
-                "reconcile",
-            )
-        )
-    if any(a.get("status") == "blocked" for a in facts.get("actions", [])):
-        return Err(
-            ReportBlocked(
-                "blocked_action",
-                "Unresolved evidence blocks an affected recommendation.",
                 "reconcile",
             )
         )
@@ -665,7 +825,13 @@ def _draft(config, bundle, port, manifest, context, fixed_facts, feedback):
             "validation_prompt",
             "Verify facts and narrative against cited evidence. Reject unsupported claims, numeric inventions, reversed transfers, unauthorised disposals, expanded scope, contradictions, omitted decisions and generation defects disguised as review items. Supported explanations and paraphrases are valid. Return supported and issues; never request missing application-supplied wording.",
         ),
-        context={"facts": facts, "narratives": narratives, "report": report, **context},
+        context={
+            **{key: value for key, value in context.items() if key != "repair"},
+            "report_stage": "adviser_review_draft",
+            "facts": _review_facts(facts),
+            "narratives": [{"slot": n["slot"], "text": n["text"]} for n in narratives],
+            "report": report,
+        },
     )
     if isinstance(reviewed, Err):
         return reviewed
@@ -757,7 +923,8 @@ def run_generation(
                     {
                         k: v
                         for k, v in config.items()
-                        if k.endswith("prompt") or k == "global_instructions"
+                        if k.endswith("prompt")
+                        or k in {"global_instructions", "tone_of_voice"}
                     }
                     | {"slots": [s.get("placeholders", {}) for s in config["sections"]]}
                 ),
@@ -771,12 +938,13 @@ def run_generation(
                 ),
             }
             result = _generate(
-                config, client_dir, BudgetPort(provider), cache_dir, manifest
+                config,
+                client_dir,
+                BudgetPort(provider, tone_of_voice=config.get("tone_of_voice", "")),
+                manifest,
             )
         if isinstance(result, Err):
-            manifest["status"] = (
-                "blocked" if isinstance(result.error, ReportBlocked) else "failed"
-            )
+            manifest["status"] = result.error.manifest_status
             manifest["error"] = {
                 "type": type(result.error).__name__,
                 "code": result.error.code,

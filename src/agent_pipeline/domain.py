@@ -4,7 +4,7 @@ import json
 import re
 from datetime import date
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -38,10 +38,15 @@ class Money(FactModel):
 
 
 class Account(FactModel):
-    account_id: str
+    account_id: str = Field(
+        description="Existing account ID, or a distinct nonblank local identifier for a planned account without an issued ID. Reuse that identifier in scope and actions."
+    )
     platform: str = ""
     account_type: str = ""
-    owners: list[str] = Field(default_factory=list)
+    owners: list[str] = Field(
+        default_factory=list,
+        description="Evidenced owner names, not ownership labels such as 'Joint'. Use [] if names are unknown, preserving explicit joint ownership in account_type.",
+    )
     status: Literal["open", "closed", "planned", "unknown"] = "open"
     valuation: Money | None = None
     refs: list[SourceRef] = Field(default_factory=list)
@@ -50,7 +55,10 @@ class Account(FactModel):
 class Observation(FactModel):
     account_id: str
     amount: Money
-    basis: str = "market_value"
+    basis: Literal["market_value", "cost_basis"] = Field(
+        default="market_value",
+        description="Use market_value for the current value of holdings, including live meeting valuations; cost_basis only for acquisition costs.",
+    )
     refs: list[SourceRef] = Field(default_factory=list)
 
 
@@ -72,7 +80,10 @@ class Action(FactModel):
     amount: Money | None = None
     extent: Literal["full", "partial", "unspecified"] = "unspecified"
     allocation_rule: str | None = None
-    rationale: str = ""
+    rationale: str = Field(
+        default="",
+        description="Recorded purpose only, without repeating transaction steps, amounts or account identifiers. For confirm actions, state what must be confirmed.",
+    )
     timing: str | None = None
     conditions: list[str] = Field(default_factory=list)
     status: Literal["agreed", "conditional", "future", "excluded"] = "agreed"
@@ -94,13 +105,23 @@ class Commitment(FactModel):
     description: str
     amount: Money | None = None
     status: Literal["unpaid", "paid"] = "unpaid"
-    already_reflected: bool = False
+    already_reflected: bool = Field(
+        default=False,
+        description="True only if the supplied receipt amount is already net of this commitment; earmarked or due amounts are not deducted.",
+    )
     refs: list[SourceRef] = Field(default_factory=list)
 
 
 class NarrativeFact(FactModel):
     category: Literal[
-        "circumstance", "objective", "risk", "timing", "sensitivity", "exclusion"
+        "circumstance",
+        "objective",
+        "risk",
+        "timing",
+        "sensitivity",
+        "exclusion",
+        "rationale",
+        "charges_concern",
     ]
     text: str
     refs: list[SourceRef] = Field(default_factory=list)
@@ -131,7 +152,10 @@ class FundingBalance(FactModel):
 
 
 class CaseFacts(FactModel):
-    effective_date: date | None = None
+    effective_date: date | None = Field(
+        default=None,
+        description="Date of the meeting or source instruction, when supplied; anchors relative timing. Do not substitute today's date.",
+    )
     tax_year: str | None = None
     accounts: list[Account] = Field(default_factory=list)
     requested_account_ids: list[str] = Field(default_factory=list)
@@ -146,26 +170,6 @@ class CaseFacts(FactModel):
     review_items: list[ReviewItem] = Field(default_factory=list)
     conflicts: list[ReviewItem] = Field(default_factory=list)
     funding_balances: list[FundingBalance] = Field(default_factory=list)
-
-
-def extraction_schema() -> dict[str, Any]:
-    """OpenAI's strict schema requires every property, including nullable ones."""
-    schema = CaseFacts.model_json_schema()
-
-    def strict(node: Any) -> None:
-        if isinstance(node, dict):
-            node.pop("default", None)
-            if node.get("type") == "object":
-                node["additionalProperties"] = False
-                node["required"] = list(node.get("properties", {}))
-            for child in node.values():
-                strict(child)
-        elif isinstance(node, list):
-            for child in node:
-                strict(child)
-
-    strict(schema)
-    return schema
 
 
 def _normal(text: str) -> str:
@@ -280,9 +284,19 @@ def _check_provenance(
             or not ref.excerpt.strip()
             or _normal(ref.excerpt) not in _normal(block.text)
         ):
-            return _failure(
-                "unsupported_reference",
-                "A fact has an invalid evidence reference or excerpt.",
+            return Err(
+                ExtractionError(
+                    "unsupported_reference",
+                    "A fact has an invalid evidence reference or excerpt.",
+                    "reconcile",
+                    details={
+                        "evidence_id": ref.evidence_id,
+                        "excerpt": ref.excerpt,
+                        "source_text": block.text
+                        if block and block.role == "evidence"
+                        else None,
+                    },
+                )
             )
     for item in items:
         item_refs: list[SourceRef] = getattr(item, "refs", [])
@@ -606,8 +620,7 @@ def _check_allocations(
     )
 
     def action_sources(action: Action) -> list[str]:
-        if action.source_funding_ids:
-            return ["receipt:" + key for key in set(action.source_funding_ids)]
+        sources = ["receipt:" + key for key in set(action.source_funding_ids)]
         if action.source_account_id:
             prefix = (
                 "sale:"
@@ -615,8 +628,8 @@ def _check_allocations(
                 and action.source_account_id in sale_limits
                 else "account:"
             )
-            return [prefix + action.source_account_id]
-        return []
+            sources.append(prefix + action.source_account_id)
+        return sources
 
     allocations = [
         a
@@ -640,7 +653,10 @@ def _check_allocations(
             _review(
                 facts,
                 "allocation_confirmation",
-                "Confirm exact available funding and allocations before implementation.",
+                "Confirm exact available funding and allocation amounts before implementation."
+                if missing
+                else "Confirm allocation amounts before implementation.",
+                action.destination_account_ids,
             )
             continue
         if any(amount.currency != action.amount.currency for amount in funding):
@@ -738,7 +754,14 @@ def _check_allocations(
                     blocked=True,
                 )
             if (
-                sum((a.amount.value for a in reinvestments if a.amount), Decimal(0))
+                sum(
+                    (
+                        a.amount.value
+                        for a in reinvestments
+                        if a.amount and not a.source_funding_ids
+                    ),
+                    Decimal(0),
+                )
                 > sale_limit.value
             ):
                 return _failure(
@@ -800,6 +823,11 @@ def reconcile(
             blocked=True,
         )
     for account in result.planned_accounts:
+        if not account.account_id.strip():
+            return _failure(
+                "invalid_account_id",
+                "Assign each planned account a distinct nonblank local identifier and reuse it in scope and actions.",
+            )
         account.status = "planned"
         if account.valuation is not None:
             return _failure(
@@ -863,7 +891,9 @@ def reconcile(
                 _review(
                     result,
                     "missing_balance",
-                    "Confirm the outstanding account balance and status before finalising.",
+                    "Confirm the outstanding account balance"
+                    + (" and status" if account.status == "unknown" else "")
+                    + " before finalising.",
                     [account.account_id],
                 )
             continue
@@ -977,7 +1007,77 @@ def reconcile(
                 deducted_commitment_ids=[x.commitment_id for x in commitments],
             )
         )
+    destination_accounts = account_map | {
+        account.account_id: account for account in result.planned_accounts
+    }
+    pension_actions: list[Action] = []
     for action in result.actions:
+        if action.kind == "open" and not action.destination_account_ids:
+            return _failure(
+                "missing_action_destination",
+                "An account-opening action must identify the planned account in destination_account_ids.",
+            )
+        source = account_map.get(action.source_account_id or "")
+        cited = " ".join(ref.excerpt for ref in action.refs)
+        if (
+            action.kind == "transfer"
+            and source
+            and re.search(
+                r"\b(?:GIA|general investment account)\b", source.account_type, re.I
+            )
+            and re.search(r"\b(?:disinvest|sell|selling|disposal)\b", cited, re.I)
+        ):
+            return _failure(
+                "disposal_misclassified",
+                "A cited GIA disposal cannot be classified as a transfer.",
+                blocked=True,
+            )
+        isa_targets = [
+            identifier
+            for identifier in action.destination_account_ids
+            if identifier in account_map
+            and "isa" in account_map[identifier].account_type.casefold()
+        ]
+        pension_targets = [
+            identifier
+            for identifier in action.destination_account_ids
+            if identifier in destination_accounts
+            and re.search(
+                r"\b(?:sipp|pension)\b",
+                destination_accounts[identifier].account_type,
+                re.I,
+            )
+        ]
+        if (
+            pension_targets
+            and action.kind == "contribute"
+            and action.status in {"agreed", "conditional"}
+        ):
+            _review(
+                result,
+                "pension_capacity",
+                "Confirm the available pension allowance and eligible contribution amount for each account before implementation.",
+                pension_targets,
+            )
+            condition = "Pension contributions require confirmed allowance and contribution eligibility"
+            if condition not in action.conditions:
+                action.conditions.append(condition)
+            pension_actions.append(action)
+        if isa_targets and any(
+            block.role == "evidence"
+            and re.search(r"\bISAs?\b.{0,60}\bpart.funded\b", block.text, re.I)
+            and re.search(r"\bremaining allowance\b", block.text, re.I)
+            for block in bundle.blocks
+        ):
+            _review(
+                result,
+                "isa_capacity",
+                "Confirm existing subscriptions, remaining ISA capacity and treatment of excess proceeds before implementation.",
+                isa_targets,
+            )
+            condition = "ISA top-ups are subject to each account's remaining allowance"
+            if condition not in action.conditions:
+                action.conditions.append(condition)
         if set(action.source_funding_ids) - receipt_map.keys():
             return _failure(
                 "unknown_receipt",
@@ -1028,6 +1128,8 @@ def reconcile(
     funding_check = _check_allocations(result, account_map)
     if isinstance(funding_check, Err):
         return funding_check
+    for action in pension_actions:
+        action.status = "conditional"
     seen_actions: set[str] = set()
     for action in result.actions:
         key = json.dumps(

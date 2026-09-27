@@ -39,12 +39,12 @@ def validate_slot(
             and opening.casefold() in text.casefold()
         ):
             errors.append("duplicate_opening")
-    if selector in {"introduction", "background", "recommendations"}:
+    if selector in {"introduction", "background", "recommendations", "rationale"}:
         if re.search(
             r"[£$€]|\b\d[\d,.]*\s*(?:%|percent|pounds|GBP|USD|EUR)\b|\d\s*%", text, re.I
         ):
             errors.append("financial_amount_in_narrative")
-    if selector == "recommendations" and re.search(
+    if selector in {"recommendations", "rationale"} and re.search(
         r"(?:^|[.!?]\s+)(?:we recommend (?:you )?|you should )?(?:sell|dispose|transfer|contribute|withdraw|top[ -]?up|purchase|invest)\b",
         text,
         re.I,

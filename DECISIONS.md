@@ -1,57 +1,32 @@
-# Data findings and design decisions
+## Write up
 
-Going to run a hexagonal architecture approach since it suits this sort of use-case where there could be a desire to switch from openai -> openrouter or bedrock in future. Wire in openrouter for V1 to show how switching would work, no live tests on it for now.
+Provided key lacks Responses write access: the live API returned HTTP 401 with missing scope `api.responses.write`. Chat Completions succeeds with the same configured credentials. As such for this assignment we will utilise chat completions but if you were taking this further you would look to migrate to responses as this is the way things are going and you get much more customisability from this endpoint.
 
-Account level Data is clean - no person entity duplication needed it seems but if it was needed would go: deterministic -> embedding -> Jev (or Luna if sticking to OpenAI) -> LLM fallback for boundry cases
+I ran a few checks of the code through the API on Saturday, on Sunday the same query returns an account deactivated error message: Error code: 401 - {'error': {'message': 'The OpenAI account associated with this API key has been deactivated. If you are the developer for this OpenAI app, please check your email for more information. If you are seeing this error while using another app or site, please reach out to them for more help.', 'type': 'invalid_request_error', 'code': 'account_deactivated', 'param': None}, 'status': 401}
 
-Joint accounts repeat by account ID -> normalise by ID
+I'll then just use my own Openrouter key set to luna 6 for the final runs as well so it keeps it consistent with what openai would have produced. This just means I'll have to route in the Openrouter flow as well.
 
-pngs currently show duplicated data, although expect hold-out set or others to contain useful data. Read them in V1 anyway -> should not append duplicate facts, should be deduplicated against existing evidence
+Because of this instead of running the MLFLOW prompt evaluation approach, I'll run codex loops instead. This is the process whereby instead of feeding the inputs the chat model endpoint I simply take what would have been sent to the api and instead of sending it to the MLFlow evaluate and optimize_prompts endpoint we mock this up with our subagent routing in codex. The luna subagent returns what the output would have been (slight caveat this runs luna light but chatcompletions runs with no reasoning but it gives a good rough idea). We spin up a load of test criteria (feed in half a dozen examples and get our stronger model (Sol) to negatively review the outputted text against the requirements. Every time it finds a mistake it adds this as a test and this just scales with our example loops. We iterate until it doesn't find any more examples and all Clients 1-4 are passing green) - at this point we run it through out now openrouter api endpoint and assess the output md files manually.
 
-We need to grab latest data -> Database snapshot is 30th April 2026 -> we can see updated data in the meeting data. Logic -> compare the actual valuation dates for the same account/currency/basis, newer meeting data can replace the older figure but keep both as evidence (possibly add typo - anomoly detection here but not a top priority). Latest supported figure, not maximum amount. Client 2 (40k -> a little over 45k -> keep "a little over 45k", dont guess 45.2k for example), client 3 going from 30 - around 38k -> keep "around 38k" as about could be less than 38k. Get this included in the prompt -> no rounding into an exact figure, should be on the client facing person to get the exact value if they need. If dates/conflicts arent resolved, flag rather than just picking one
+A production system would want to run the MLFLOW approach or another automated version control of prompts but for a starting point the codex looping is sufficient.
 
-Prompt is pretty poor - needs iteration on -> Astra first pass, run on Luna across the 4 clients and flag for my review -> reviewed version becomes the base for MLFlow automated iteration. Contradiction to remove - If you do not have exact figures, give your best approximate estimate so the client has a number to work with.
+The architecture runs the hexagonal port/domain flow for it's fail-fast and ease of switching out endpoints if we think about openai/bedrock/openrouter.
 
-Keep the current broken report as the original baseline example. New extraction/investigation prompts dont have an old equivalent -> their first versions are the starting point. Compare later prompt changes with the pipeline/model unchanged so we know what actually helped
+# Initial thoughts braindump
 
-Current output has a broken structure (main section appears 3 times) TODO: add tests to ensure our output structure is correct.
-
-Not all data is complete - make sure prompt takes this into account
-
-Make sure the generic material is excluded from client data (such as the 6.4%)
-
-Will need to test the requirements -> Such as the forced text and the key values that need human review.
-
-Tax around ISA moving is probably a test to be added.
-
-Read JSON, DOCX paragraphs/tables, text, and images as evidence blocks; flag unsupported embedded content.
-
-Output document is mostly deterministic, with model calls filling narrative gaps. Give each call only relevant evidence and surrounding template wording.
-
-Use Standard pricing in V1. Later, assess Flex for non-urgent drafts prepared before a meeting; measure cost and deadline reliability before adopting it.
-
-Need to add some reasoning around excluded funds on the bridging stuff for client 4 -> 850k received, 200k committed to the loan, leaves 650k available from the completion payment. Confirm repayment timing. The up to 400k earnout hasnt arrived and isnt guaranteed so exclude it from available funds
-
-Architecture:
-
-Use the Lendable approach for errors -> typed Ok / Err results at the ports, handle the error before the next step runs. Adapters convert provider exceptions, domain logic doesnt need to know which provider failed
-
-JSON, DOCX paragraphs/tables and image transcriptions -> evidence blocks with source references. Unfamiliar material needs review. New accounts arent automatically confirmed custody/advice scope; duplicates must not create assets.
-
-Separate observations/actions and received/committed/contingent funds. Valuations arent cash, transfers arent new wealth. Keep contributions/disposals separate. Pure functions reconcile money/accounts; bounded investigator finds missing evidence, never guesses.
-
-Each slot gets relevant facts + surrounding wording. Code renders actions, holdings and fixed warnings; LLM explains recommendations via config prompts. Acknowledge charges/confirmation without repeating fees. Preserve config order/inclusion and supplied formatter.
-
-Small client inputs -> explicit selection, no vector store. Narrow provider ports for switching later. Shared CLI/MLflow generation, validation and spend tracking.
-
-Actions can depend on confirmed allowances/amounts. Unknown figures stay flagged; ambiguous identities/instructions block affected recommendations.
-
-First implementation:
-
-Keep source support checks separate from the maths. A quoted number being present doesnt prove it belongs to that action -> deterministic checks catch arithmetic/scope issues, model validation still has to check meaning. Neither replaces reviewing the actual reports.
-
-Cache only after accepting the extraction/image result. Valid JSON on its own isnt enough. Failed/refused/incomplete results should get another attempt, not become cached facts.
-
-MLflow stays optional for generation. The optimiser's own reflection calls arent metered by our provider adapter yet -> cost stays unknown rather than pretending its free. Need to sort that before claiming a cost saving.
-
-New Responses API path got an authentication error using the local key, also checked directly from .env. Havent retested the old Chat Completions path so need to check why before blaming the key. The four reports and prompt comparison still need running. Astra prompt rewrite is saved separately for review, no autoimprove yet. Offline tests arent evidence that the live reports are good.
+ - Ensure the output structure is no longer broken and matches the requirements
+ - Ensure accounts are normalised by ID - Joint accounts repeat by account ID
+ - No requirement for personal entity deduplication but if it was needed deterministic -> embedding -> Jev (or Luna if sticking to OpenAI) -> LLM fallback for boundry cases
+ - OCR, luna can take in images so in theory can pass through, better approach, ocr step to generate text and compare that text with the other files. Currently all the .png content is duplicated but it may not be in the future
+ - Ensure the latest data is always grabbed (Database snapshot is 30th April 2026, notes contain more recent information)
+ - For values that are not accurate (a little over 45, around 38k - we should take the minimimum confirmed value, so for the over 45 we take 45 for the around 38 we would also take 38 as even though it may be a little lower as 38k is the value to hand, anything more specific is on the guy talking to the client to get)
+ - Ensure output structure is valid, a lot is deterministcally required so should not be included in the prompt.
+ - Ensure generic material is excluded from client data (such as the fund performance values of 6.4%)
+ - Ensure ISA tax logic handled correctly
+ - Ensure all input types correctly passed and flag any unsupported content
+ - For this approach use the standard endpoint, future enhancement would to use flex pricing via a submit/get approach and create the reports automatically based on the calendars of people. So they log in the morning and have the X reports generated for them for their daily meetings.
+ - Ensure complexity of the 200k bridging payment stuff for client 4 is handled
+ - No need for a vector store at this stage for anything
+ - Ensure the LLM only edits code in the areas it should and only brings in required data to prompt
+ - Use typed results for errors -> typed Ok / Err results at the ports, handle the error before the next step runs. Adapters convert provider exceptions, domain logic doesnt need to know which provider failed
+ - Separate observations/actions and received/committed/contingent funds. Valuations arent cash, transfers arent new wealth. Keep contributions/disposals separate. Pure functions reconcile money/accounts; bounded investigator finds missing evidence, never guesses.

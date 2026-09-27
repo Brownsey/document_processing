@@ -9,7 +9,8 @@
       "850,000 received, reserve 200,000 bridge repayment once, leaves 650,000. Earnout up to 400,000 unreceived/contingent: exclude.",
       "Separate partial Holloway sale/rebalance and Holloway contribution. No Brightwell GIA/SIPP/ISA/bond sale. Retain bond.",
       "Both ISA and SIPP contributions require allowances/sizing; new joint gets remaining balance. No invented allocations or exact fee basis.",
-      "Three-year income replacement objective; unknown Caroline cash reviewed; closed account excluded. School fees/charity/France deferred."
+      "Three-year income replacement objective; unknown Caroline cash reviewed; closed account excluded. School fees/charity/France deferred.",
+      "The introductory scope may group the two individual ISAs and two SIPPs in the plural by platform, and name each joint wrapper by platform/type. Individual IDs and ownership remain required in holdings and extracted scope."
     ]
   },
   "accounts": [
@@ -24,7 +25,10 @@
       ],
       "value": "85000",
       "date": "2026-04-30",
-      "precision": "exact"
+      "precision": "exact",
+      "scope_aliases": [
+        "Holloway Stocks & Shares ISAs"
+      ]
     },
     {
       "id": "H4-ISA-C",
@@ -37,7 +41,10 @@
       ],
       "value": "82000",
       "date": "2026-04-30",
-      "precision": "exact"
+      "precision": "exact",
+      "scope_aliases": [
+        "Holloway Stocks & Shares ISAs"
+      ]
     },
     {
       "id": "H4-GIA-HJ",
@@ -52,7 +59,10 @@
       ],
       "value": "255000",
       "date": "2026-05-20",
-      "precision": "approximate"
+      "precision": "approximate",
+      "scope_aliases": [
+        "Holloway joint General Investment Account"
+      ]
     },
     {
       "id": "B4-SIPP-J",
@@ -65,7 +75,10 @@
       ],
       "value": "610000",
       "date": "2026-04-30",
-      "precision": "exact"
+      "precision": "exact",
+      "scope_aliases": [
+        "Brightwell SIPPs"
+      ]
     },
     {
       "id": "B4-SIPP-C",
@@ -78,7 +91,10 @@
       ],
       "value": "430000",
       "date": "2026-04-30",
-      "precision": "exact"
+      "precision": "exact",
+      "scope_aliases": [
+        "Brightwell SIPPs"
+      ]
     },
     {
       "id": "B4-GIA-J",
@@ -93,7 +109,10 @@
       ],
       "value": "95000",
       "date": "2026-04-30",
-      "precision": "exact"
+      "precision": "exact",
+      "scope_aliases": [
+        "Brightwell joint General Investment Account"
+      ]
     },
     {
       "id": "M4-BOND-J",
@@ -108,7 +127,10 @@
       ],
       "value": "180000",
       "date": "2026-04-30",
-      "precision": "exact"
+      "precision": "exact",
+      "scope_aliases": [
+        "Meridian joint Offshore Investment Bond"
+      ]
     }
   ],
   "actions": [

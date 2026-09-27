@@ -36,7 +36,7 @@ Reconciliation rules:
 
 ## Errors and fail-early checks
 
-Follow the Lendable pattern: small `Ok[T]` / `Err[E]` dataclasses, a `Result[T, E]` union and typed `Protocol` ports. Fallible operations declare their error types, e.g. `extract(...) -> Result[CaseFacts, ExtractionError]`. Keep error types provider-independent; no Result framework dependency.
+Use explicit result types: small `Ok[T]` / `Err[E]` dataclasses, a `Result[T, E]` union and typed `Protocol` ports. Fallible operations declare their error types, e.g. `extract(...) -> Result[CaseFacts, ExtractionError]`. Keep error types provider-independent; no Result framework dependency.
 
 Adapters catch expected SDK/file exceptions and return typed errors. Services handle `Err` before accessing values or starting dependent work; preserve the error type and context when propagating it. Core logic never catches provider exceptions. Keep constructors free of I/O; fallible setup also returns a Result. Type checks and failure-path tests enforce this convention.
 
